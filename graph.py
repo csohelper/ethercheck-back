@@ -19,6 +19,43 @@ _rooms_cache = None
 _cache_time: datetime | None = None
 
 
+def optimize_stepped_data(data: list[dict]) -> list[dict]:
+    """
+    Оптимизация для stepped графиков.
+    Удаляет промежуточные точки в длинных сериях одинаковых значений,
+    но оставляет первую и последнюю точку каждой серии для правильного отображения временных интервалов.
+    """
+    if len(data) <= 2:
+        return data
+
+    optimized = []
+    i = 0
+
+    while i < len(data):
+        current_y = data[i]['y']
+
+        # Добавляем первую точку серии
+        optimized.append(data[i])
+
+        # Ищем где заканчивается серия одинаковых значений
+        j = i + 1
+        while j < len(data) and data[j]['y'] == current_y:
+            j += 1
+
+        # Если серия длиннее 1 точки, добавляем последнюю точку серии
+        if j - i > 1:  # <- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: проверяем длину серии
+            optimized.append(data[j - 1])
+
+        # Переходим к следующей серии
+        i = j
+
+    # Всегда добавляем последнюю точку, если её ещё нет
+    if not optimized or optimized[-1]['x'] != data[-1]['x']:
+        optimized.append(data[-1])
+
+    return optimized
+
+
 async def get_all_rooms() -> list[int]:
     global _rooms_cache, _cache_time
     now = datetime.now()
@@ -100,6 +137,9 @@ async def api_data():
 
         data = [{"x": dt.isoformat(), "y": losses_dict.get(dt, 0.0)} for dt in timeline]
 
+        # Оптимизация для stepped графиков
+        data = optimize_stepped_data(data)
+
         return jsonify({
             "datasets": [{
                 "label": "Процент потерь (суммарно по всем комнатам)",
@@ -107,7 +147,7 @@ async def api_data():
                 "borderColor": "#ff5555",
                 "backgroundColor": "#ff555550",
                 "fill": True,
-                "tension": 0.3
+                # "stepped": "before"
             }]
         })
 
@@ -121,7 +161,8 @@ async def api_data():
             if path.exists():
                 try:
                     df = pd.read_csv(path, delimiter=";", header=0)
-                    df.columns = ["YYYY", "MM", "DD", "HH", "MM_min", "ROOM", "PACKETS", "REACHES", "LOSSES", "PERCENTS"]
+                    df.columns = ["YYYY", "MM", "DD", "HH", "MM_min", "ROOM", "PACKETS", "REACHES", "LOSSES",
+                                  "PERCENTS"]
                     df = df[df['ROOM'].isin(selected_rooms)]
                     df['dt'] = pd.to_datetime(
                         df['YYYY'].astype(str) + '-' +
@@ -134,7 +175,7 @@ async def api_data():
                     for _, r in df.iterrows():
                         room = int(r['ROOM'])
                         dt = r['dt']
-                        room_data[room][dt] = float(r['PERCENTS'])  # Not sum, since percent
+                        room_data[room][dt] = float(r['PERCENTS'])
                 except Exception as e:
                     print(e)
             hour += timedelta(hours=1)
@@ -143,13 +184,17 @@ async def api_data():
         datasets = []
         for i, room in enumerate(sorted(selected_rooms)):
             data = [{"x": dt.isoformat(), "y": room_data[room].get(dt, 0.0)} for dt in timeline]
+
+            # Оптимизация для stepped графиков
+            data = optimize_stepped_data(data)
+
             datasets.append({
                 "label": f"Процент потерь (комната {room})",
                 "data": data,
                 "borderColor": colors[i % len(colors)],
                 "backgroundColor": colors[i % len(colors)] + "50",
                 "fill": True,
-                "tension": 0.3
+                "stepped": "before"
             })
 
         return jsonify({"datasets": datasets})

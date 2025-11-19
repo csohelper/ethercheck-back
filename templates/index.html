@@ -2,21 +2,31 @@
 <html lang="ru">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Потери пакетов — Ethernet мониторинг</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/luxon"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <style>
+        * {
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+        }
+
         body {
             font-family: system-ui, sans-serif;
             background: #0d1117;
             color: #c9d1d9;
             margin: 0;
             padding: 20px;
+            overflow-x: hidden;
         }
 
         .card {
@@ -50,9 +60,17 @@
             color: #c9d1d9;
         }
 
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 70vh;
+            touch-action: none;
+            -ms-touch-action: none;
+        }
+
         canvas {
-            width: 100% !important;
-            height: 70vh !important;
+            touch-action: none !important;
+            -ms-touch-action: none !important;
         }
 
         .stats {
@@ -87,7 +105,6 @@
             border-radius: 6px;
         }
 
-        /* Flatpickr dark theme overrides */
         .flatpickr-calendar {
             background: #161b22;
             color: #c9d1d9;
@@ -134,7 +151,6 @@
             color: #c9d1d9;
         }
 
-        /* Mobile adaptations */
         @media (max-width: 768px) {
             body {
                 padding: 10px;
@@ -158,8 +174,8 @@
                 max-height: 200px;
             }
 
-            canvas {
-                height: 50vh !important;
+            .chart-container {
+                height: 50vh;
             }
 
             button {
@@ -196,7 +212,9 @@
         <button onclick="load()">Показать</button>
     </div>
     <div id="stats" class="stats"></div>
-    <canvas id="chart"></canvas>
+    <div class="chart-container">
+        <canvas id="chart"></canvas>
+    </div>
 </div>
 
 <script>
@@ -217,16 +235,13 @@
     roomCheckboxes.forEach(cb => {
         cb.addEventListener('change', function () {
             if (this.value === 'total' && this.checked) {
-                // Если total выбран, снимаем выбор и отключаем остальные
                 otherCheckboxes.forEach(other => {
                     other.checked = false;
                     other.disabled = true;
                 });
             } else if (this.value === 'total' && !this.checked) {
-                // Если total снят, включаем остальные
                 otherCheckboxes.forEach(other => other.disabled = false);
             } else {
-                // Если выбрана комната, снимаем total и отключаем его
                 const anyRoomChecked = otherCheckboxes.some(other => other.checked);
                 if (anyRoomChecked) {
                     totalCheckbox.checked = false;
@@ -238,7 +253,6 @@
         });
     });
 
-    // Инициализация: поскольку total по умолчанию checked, отключить остальные
     otherCheckboxes.forEach(other => other.disabled = true);
 
     async function load() {
@@ -250,33 +264,50 @@
         const json = await resp.json();
 
         if (chart) chart.destroy();
-        chart = new Chart(document.getElementById("chart"), {
+
+        const ctx = document.getElementById("chart");
+        chart = new Chart(ctx, {
             type: "line",
             data: {datasets: json.datasets},
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: false,
+                elements: {
+                    point: {
+                        radius: 0,
+                        hitRadius: 5,
+                        hoverRadius: 4
+                    },
+                    line: {
+                        borderWidth: 2
+                    }
+                },
                 scales: {
                     x: {
-                        type: "time",
+                        type: "time",  // Изменено с "timeseries" на "time"
                         time: {
-                            unit: "minute"
+                            unit: "minute",
+                            displayFormats: {
+                                minute: 'dd.MM HH:mm',
+                                hour: 'dd.MM HH:mm'
+                            }
                         },
                         ticks: {
                             autoSkip: true,
-                            maxTicksLimit: 8,
+                            maxTicksLimit: 12,
                             maxRotation: 90,
-                            minRotation: 0,
-                            callback: function (value) {
-                                return luxon.DateTime.fromMillis(value).toFormat('dd.MM HH:mm');
-                            }
+                            minRotation: 0
                         }
                     },
-                    y: {beginAtZero: true}
+                    y: {
+                        beginAtZero: true
+                    }
                 },
                 plugins: {
-                    legend: {position: "top"},
+                    legend: {
+                        position: "top"
+                    },
                     tooltip: {
                         enabled: true,
                         mode: 'index',
@@ -288,20 +319,26 @@
                         }
                     },
                     zoom: {
+                        limits: {
+                            x: {min: 'original', max: 'original'},
+                        },
+                        pan: {
+                            enabled: true,
+                            mode: 'x',
+                            modifierKey: null,
+                        },
                         zoom: {
                             wheel: {
                                 enabled: true,
+                                speed: 0.1
                             },
                             pinch: {
                                 enabled: true
                             },
                             mode: 'x',
-                        },
-                        pan: {
-                            enabled: true,
-                            mode: 'x'
                         }
                     }
+                    // УБРАЛИ decimation - это и было причиной проблемы!
                 },
                 interaction: {
                     mode: 'nearest',
