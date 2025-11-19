@@ -7,6 +7,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/luxon"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
     <style>
@@ -251,6 +252,8 @@
             type: "line",
             data: {datasets: json.datasets},
             options: {
+                responsive: true,
+                maintainAspectRatio: false,
                 animation: false,
                 scales: {
                     x: {type: "time", time: {unit: "hour", displayFormats: {hour: "HH:mm"}}},
@@ -266,6 +269,21 @@
                             label: function (context) {
                                 return `${context.dataset.label}: ${context.parsed.y.toFixed(2)}%`;
                             }
+                        }
+                    },
+                    zoom: {
+                        zoom: {
+                            wheel: {
+                                enabled: true,
+                            },
+                            pinch: {
+                                enabled: true
+                            },
+                            mode: 'x',
+                        },
+                        pan: {
+                            enabled: true,
+                            mode: 'x',
                         }
                     }
                 },
