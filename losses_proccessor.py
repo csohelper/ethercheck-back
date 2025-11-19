@@ -4,28 +4,47 @@ import json
 import logging
 import os
 import tempfile
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 from typing import List, Dict, Tuple, TypedDict
-
 import filelock
-# Удобная блокировка для конкурентного доступа (pip install filelock)
 from filelock import FileLock
 
 DATA_DIR = Path("data") / "losses"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+HOURS_DIR = DATA_DIR / "hours"
+DAILY_DIR = DATA_DIR / "daily"
+HOURS_DIR.mkdir(parents=True, exist_ok=True)
+DAILY_DIR.mkdir(parents=True, exist_ok=True)
 
 CSV_FIELDS = ["YYYY", "MM", "DD", "HH", "MM_min", "ROOM", "PACKETS", "REACHES", "LOSSES", "PERCENTS"]
 
 
-# note: MM_min — название поля для минуты (т.к. MM уже занят месяц). В CSV будет записано как минутa.
+class AggVal(TypedDict):
+    packets: int
+    reaches: int
+    losses: int
+    dt: datetime
 
-def _parse_timestamp(ts: str) -> datetime:
-    # ожидаемый формат "YYYY-MM-DD HH:MM"
+
+def parse_timestamp(ts: str) -> datetime:
+    """
+    Parses a timestamp string into a datetime object.
+    :param ts: Timestamp string in format "YYYY-MM-DD HH:MM".
+    :return: Parsed datetime object.
+    """
     return datetime.strptime(ts, "%Y-%m-%d %H:%M")
 
 
-def _row_from_values(dt: datetime, room: int, packets: int, reached: int, losses: int) -> Dict[str, str]:
+def create_row_from_values(dt: datetime, room: int, packets: int, reached: int, losses: int) -> Dict[str, str]:
+    """
+    Creates a row dictionary from given values, calculating percentage.
+    :param dt: Datetime object.
+    :param room: Room number.
+    :param packets: Number of packets.
+    :param reached: Number of reached packets.
+    :param losses: Number of losses.
+    :return: Dictionary representing the row.
+    """
     percent = 0.0
     if packets:
         percent = losses / packets * 100.0
@@ -43,7 +62,12 @@ def _row_from_values(dt: datetime, room: int, packets: int, reached: int, losses
     }
 
 
-def _read_csv_rows(path: Path) -> List[Dict[str, str]]:
+def read_csv_rows(path: Path) -> List[Dict[str, str]]:
+    """
+    Reads rows from a CSV file into a list of dictionaries.
+    :param path: Path to the CSV file.
+    :return: List of row dictionaries.
+    """
     if not path.exists():
         return []
     rows = []
@@ -51,46 +75,31 @@ def _read_csv_rows(path: Path) -> List[Dict[str, str]]:
         reader = csv.reader(fh, delimiter=";")
         next(reader, None)  # Skip the header row
         for r in reader:
-            # skip empty lines
             if not r:
                 continue
-            # Expect either 10 columns (our format) or older versions; be defensive
             if len(r) < 9:
                 continue
-            # if there are 9 columns (no room), adapt:
             if len(r) == 9:
-                # YYYY;MM;DD;HH;MM;PACKETS;REACHES;LOSSES;PERCENTS  (total file)
                 rows.append({
-                    "YYYY": r[0],
-                    "MM": r[1],
-                    "DD": r[2],
-                    "HH": r[3],
-                    "MM_min": r[4],
-                    "ROOM": "",  # empty for totals
-                    "PACKETS": r[5],
-                    "REACHES": r[6],
-                    "LOSSES": r[7],
-                    "PERCENTS": r[8],
+                    "YYYY": r[0], "MM": r[1], "DD": r[2], "HH": r[3], "MM_min": r[4],
+                    "ROOM": "", "PACKETS": r[5], "REACHES": r[6], "LOSSES": r[7], "PERCENTS": r[8],
                 })
             else:
-                # 10+ columns -> use first 10
                 rows.append({
-                    "YYYY": r[0],
-                    "MM": r[1],
-                    "DD": r[2],
-                    "HH": r[3],
-                    "MM_min": r[4],
-                    "ROOM": r[5],
-                    "PACKETS": r[6],
-                    "REACHES": r[7],
-                    "LOSSES": r[8],
-                    "PERCENTS": r[9],
+                    "YYYY": r[0], "MM": r[1], "DD": r[2], "HH": r[3], "MM_min": r[4],
+                    "ROOM": r[5], "PACKETS": r[6], "REACHES": r[7], "LOSSES": r[8], "PERCENTS": r[9],
                 })
     return rows
 
 
-def _write_csv_rows_atomic(path: Path, rows: List[List[str]]):
-    # rows: list of lists (already stringified)
+def write_csv_rows_atomic(path: Path, rows: List[List[str]], is_total: bool) -> None:
+    """
+    Writes rows to a CSV file atomically using a temporary file.
+    :param path: Path to write the CSV.
+    :param rows: List of lists representing rows.
+    :param is_total: If True, uses total header without ROOM.
+    :return: None
+    """
     dirpath = path.parent
     dirpath.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(prefix=path.name, dir=str(dirpath))
@@ -99,20 +108,12 @@ def _write_csv_rows_atomic(path: Path, rows: List[List[str]]):
     try:
         with tmp_path.open("w", newline="") as fh:
             writer = csv.writer(fh, delimiter=";")
-
-            if path.name.endswith("_total.csv"):
-                writer.writerow([
-                    "YYYY", "MM", "DD", "HH", "MM", "PACKETS", "REACHES", "LOSSES", "PERCENTS"
-                ])
+            if is_total:
+                writer.writerow(["YYYY", "MM", "DD", "HH", "MM", "PACKETS", "REACHES", "LOSSES", "PERCENTS"])
             else:
-                writer.writerow([
-                    "YYYY", "MM", "DD", "HH", "MM", "ROOM",
-                    "PACKETS", "REACHES", "LOSSES", "PERCENTS"
-                ])
-
+                writer.writerow(["YYYY", "MM", "DD", "HH", "MM", "ROOM", "PACKETS", "REACHES", "LOSSES", "PERCENTS"])
             for r in rows:
                 writer.writerow(r)
-        # atomic replace
         os.replace(str(tmp_path), str(path))
     finally:
         if tmp_path.exists():
@@ -122,76 +123,87 @@ def _write_csv_rows_atomic(path: Path, rows: List[List[str]]):
                 pass
 
 
-def _rows_to_sorted_matrix(rows: List[Dict[str, str]]) -> List[List[str]]:
-    # convert dict rows to list-of-lists and sort by datetime and room (room numeric if possible)
+def rows_to_sorted_matrix(rows: List[Dict[str, str]]) -> List[List[str]]:
+    """
+    Converts row dictionaries to a sorted list of lists.
+    :param rows: List of row dictionaries.
+    :return: Sorted list of lists.
+    """
+
     def keyfn(r: Dict[str, str]):
-        dt = datetime(
-            int(r["YYYY"]), int(r["MM"]), int(r["DD"]), int(r["HH"]), int(r["MM_min"])
-        )
+        dt = datetime(int(r["YYYY"]), int(r["MM"]), int(r["DD"]), int(r["HH"]), int(r["MM_min"]))
         room_sort = int(r["ROOM"]) if r["ROOM"] != "" else -1
         return dt, room_sort
 
     rows_sorted = sorted(rows, key=keyfn)
     matrix = []
     for r in rows_sorted:
-        matrix.append([
-            r["YYYY"],
-            r["MM"],
-            r["DD"],
-            r["HH"],
-            r["MM_min"],
-            r["ROOM"],
-            r["PACKETS"],
-            r["REACHES"],
-            r["LOSSES"],
-            r["PERCENTS"],
-        ])
+        matrix.append([r["YYYY"], r["MM"], r["DD"], r["HH"], r["MM_min"], r["ROOM"],
+                       r["PACKETS"], r["REACHES"], r["LOSSES"], r["PERCENTS"]])
     return matrix
 
 
-def _hour_key(dt: datetime) -> str:
-    # returns "YYYY-MM-DD_HH"
+def get_hour_key(dt: datetime) -> str:
+    """
+    Generates hour key from datetime.
+    :param dt: Datetime object.
+    :return: Hour key string "YYYY-MM-DD_HH".
+    """
     return dt.strftime("%Y-%m-%d_%H")
 
 
-def _hour_file_paths_for_dt_hour(dt_hour: datetime) -> Tuple[Path, Path, Path]:
+def get_day_key(dt_day: date) -> str:
     """
-    Returns (per_hour_path, total_path, lock_path)
+    Generates day key from date.
+    :param dt_day: Date object.
+    :return: Day key string "YYYY-MM-DD".
     """
-    key = _hour_key(dt_hour)
-    per_hour = DATA_DIR / f"losses_{key}.csv"
-    total = DATA_DIR / f"losses_{key}_total.csv"
-    lock = DATA_DIR / f"losses_{key}.lock"
+    return dt_day.strftime("%Y-%m-%d")
+
+
+def get_hour_file_paths(dt_hour: datetime) -> Tuple[Path, Path, Path]:
+    """
+    Returns paths for hour files and lock.
+    :param dt_hour: Datetime for the hour.
+    :return: Tuple (per_hour_path, total_path, lock_path).
+    """
+    key = get_hour_key(dt_hour)
+    per_hour = HOURS_DIR / f"losses_{key}.csv"
+    total = HOURS_DIR / f"losses_{key}_total.csv"
+    lock = HOURS_DIR / f"losses_{key}.lock"
     return per_hour, total, lock
 
 
-class AggVal(TypedDict):
-    packets: int
-    reaches: int
-    losses: int
-    dt: datetime
+def get_day_file_paths(dt_day: date) -> Tuple[Path, Path, Path]:
+    """
+    Returns paths for day files and lock.
+    :param dt_day: Date for the day.
+    :return: Tuple (per_day_path, total_path, lock_path).
+    """
+    key = get_day_key(dt_day)
+    per_day = DAILY_DIR / f"losses_{key}.csv"
+    total = DAILY_DIR / f"losses_{key}_total.csv"
+    lock = DAILY_DIR / f"losses_{key}.lock"
+    return per_day, total, lock
 
 
-def _aggregate_totals_from_rows(rows: List[Dict[str, str]]) -> List[List[str]]:
+def aggregate_totals_from_rows(rows: List[Dict[str, str]]) -> List[List[str]]:
+    """
+    Aggregates totals from rows, grouping by timestamp.
+    :param rows: List of row dictionaries.
+    :return: List of aggregated total rows.
+    """
     agg: Dict[str, AggVal] = {}
     for r in rows:
         ts = f"{r['YYYY']}-{r['MM']}-{r['DD']} {r['HH']}:{r['MM_min']}"
         packets = int(r["PACKETS"])
         reaches = int(r["REACHES"])
         losses = int(r["LOSSES"])
-
         if ts not in agg:
-            agg[ts] = AggVal(
-                packets=0,
-                reaches=0,
-                losses=0,
-                dt=_parse_timestamp(ts)
-            )
-
+            agg[ts] = AggVal(packets=0, reaches=0, losses=0, dt=parse_timestamp(ts))
         agg[ts]["packets"] += packets
         agg[ts]["reaches"] += reaches
         agg[ts]["losses"] += losses
-
     items = sorted(agg.items(), key=lambda kv: kv[1]["dt"])
     out = []
     for ts, vals in items:
@@ -200,27 +212,20 @@ def _aggregate_totals_from_rows(rows: List[Dict[str, str]]) -> List[List[str]]:
         rc = vals["reaches"]
         lo = vals["losses"]
         pct = (lo / pk * 100.0) if pk else 0.0
-        out.append([
-            f"{dt.year:04d}",
-            f"{dt.month:02d}",
-            f"{dt.day:02d}",
-            f"{dt.hour:02d}",
-            f"{dt.minute:02d}",
-            str(pk),
-            str(rc),
-            str(lo),
-            f"{pct:.3f}",
-        ])
+        out.append([f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}", f"{dt.hour:02d}",
+                    f"{dt.minute:02d}", str(pk), str(rc), str(lo), f"{pct:.3f}"])
     return out
 
 
-def _upsert_per_hour_rows(
-        existing: List[Dict[str, str]], additions: List[Dict[str, str]], room: int
-) -> List[Dict[str, str]]:
-    # existing rows: list of dicts
-    # additions: rows to add/replace (all for current room)
-    # criteria for replacement: same timestamp (YYYY-MM-DD HH:MM) and same ROOM
-    # create mapping (ts,room) -> index
+def upsert_per_hour_rows(existing: List[Dict[str, str]], additions: List[Dict[str, str]], room: int) -> List[
+    Dict[str, str]]:
+    """
+    Upserts additions into existing rows for a specific room.
+    :param existing: Existing row dictionaries.
+    :param additions: New row dictionaries to add or update.
+    :param room: Room number.
+    :return: Updated list of row dictionaries.
+    """
     index = {}
     for i, r in enumerate(existing):
         ts = f"{r['YYYY']}-{r['MM']}-{r['DD']} {r['HH']}:{r['MM_min']}"
@@ -235,15 +240,13 @@ def _upsert_per_hour_rows(
     return existing
 
 
-def _normalize_counts(packets_raw, reached_raw, losses_raw):
+def normalize_counts(packets_raw, reached_raw, losses_raw) -> Tuple[int, int, int]:
     """
-    Нормализация и вычисление losses при отсутствии явного поля.
-    Возвращает tuple (packets:int, reached:int, losses:int).
-    Политика:
-      - если losses_raw is not None -> используем его (int)
-      - иначе losses = packets - reached
-      - если reached > packets -> логируем предупреждение и приводим reached = packets, losses = 0
-      - гарантируем non-negative losses
+    Normalizes and computes packet counts, handling anomalies.
+    :param packets_raw: Raw packets value.
+    :param reached_raw: Raw reached value.
+    :param losses_raw: Raw losses value (optional).
+    :return: Tuple (packets, reached, losses).
     """
     try:
         packets = int(packets_raw)
@@ -253,7 +256,6 @@ def _normalize_counts(packets_raw, reached_raw, losses_raw):
         reached = int(reached_raw)
     except Exception:
         reached = 0
-
     if losses_raw is not None:
         try:
             losses = int(losses_raw)
@@ -261,86 +263,122 @@ def _normalize_counts(packets_raw, reached_raw, losses_raw):
             losses = max(0, packets - reached)
     else:
         losses = packets - reached
-
-    # Sanitize: prevent negative losses
     if losses < 0:
-        # Если reached > packets — аномалия. Сжимаем reached до packets и делаем losses=0
-        logging.warning(
-            "Calculated negative losses (packets=%r, reached=%r, losses=%r). "
-            "Clamping: setting reached=min(reached, packets) and losses=max(0, packets-reached).",
-            packets, reached, losses
-        )
+        logging.warning("Negative losses: packets=%r, reached=%r, losses=%r. Clamping.", packets, reached, losses)
         reached = min(reached, packets)
         losses = max(0, packets - reached)
-
-    # Also ensure reached isn't negative
     if reached < 0:
-        logging.warning("Negative 'reached' value %r -> setting to 0", reached)
+        logging.warning("Negative reached: %r -> 0", reached)
         reached = 0
-
     return packets, reached, losses
 
 
-def _process_losses_sync(room: int, file: Path):
-    # 1) read input json
-    with file.open("r", encoding="utf-8") as fh:
-        data = json.load(fh)
-    # data: dict[str timestamp -> dict with packets/reached/(optional losses)]
-
-    # group incoming records by their hour (dt.replace(minute=0))
+def group_data_by_hour(data: Dict[str, Dict[str, int]]) -> Dict[datetime, List[Tuple[datetime, int, int, int]]]:
+    """
+    Groups input data by hour.
+    :param data: Input data dictionary.
+    :return: Dictionary of hour to list of (dt, packets, reached, losses).
+    """
     by_hour: Dict[datetime, List[Tuple[datetime, int, int, int]]] = {}
     for ts_str, vals in data.items():
-        dt = _parse_timestamp(ts_str)
+        dt = parse_timestamp(ts_str)
         dt_hour = dt.replace(minute=0, second=0, microsecond=0)
-
-        # Compat: vals may contain 'packets', 'reached', and optionally 'losses'
         packets_raw = vals.get("packets", 0)
         reached_raw = vals.get("reached", 0)
-        # Use .get to allow absence of 'losses' key
         losses_raw = vals.get("losses", None)
-
-        packets, reached, losses = _normalize_counts(packets_raw, reached_raw, losses_raw)
-
+        packets, reached, losses = normalize_counts(packets_raw, reached_raw, losses_raw)
         by_hour.setdefault(dt_hour, []).append((dt, packets, reached, losses))
+    return by_hour
 
-    # For each hour touched, update per-hour and total files
-    for dt_hour, entries in by_hour.items():
-        per_hour_path, total_path, lock_path = _hour_file_paths_for_dt_hour(dt_hour)
-        # use file lock to prevent concurrent modifications
-        lock = FileLock(str(lock_path), timeout=10)  # Add timeout to prevent infinite wait
-        logging.info(f"Acquiring lock for {lock_path} (hour: {dt_hour})")
+
+def update_hourly_files(dt_hour: datetime, entries: List[Tuple[datetime, int, int, int]], room: int) -> None:
+    """
+    Updates hourly files for a given hour and entries.
+    :param dt_hour: Hour datetime.
+    :param entries: List of (dt, packets, reached, losses).
+    :param room: Room number.
+    :return: None
+    """
+    per_hour_path, total_path, lock_path = get_hour_file_paths(dt_hour)
+    lock = FileLock(str(lock_path), timeout=10)
+    logging.info(f"Acquiring lock for {lock_path} (hour: {dt_hour})")
+    try:
+        with lock:
+            logging.info(f"Acquired lock for {lock_path}")
+            existing_rows = read_csv_rows(per_hour_path)
+            additions = [create_row_from_values(dt, room, packets, reached, losses) for dt, packets, reached, losses in
+                         entries]
+            merged = upsert_per_hour_rows(existing_rows, additions, room)
+            matrix = rows_to_sorted_matrix(merged)
+            write_csv_rows_atomic(per_hour_path, matrix, is_total=False)
+            totals_matrix = aggregate_totals_from_rows(merged)
+            write_csv_rows_atomic(total_path, totals_matrix, is_total=True)
+        logging.info(f"Released lock for {lock_path}")
         try:
-            with lock:
-                logging.info(f"Acquired lock for {lock_path}")
-                # read existing per-hour rows
-                existing_rows = _read_csv_rows(per_hour_path)
+            lock_path.unlink()
+        except Exception as e:
+            print(e)
+    except filelock.Timeout:
+        logging.error(f"Timeout acquiring lock for {lock_path}")
+        raise
 
-                # build additions rows (for this room)
-                additions = []
-                for dt, packets, reached, losses in entries:
-                    additions.append(_row_from_values(dt, room, packets, reached, losses))
 
-                # upsert
-                merged = _upsert_per_hour_rows(existing_rows, additions, room)
+def collect_touched_days(by_hour: Dict[datetime, List[Tuple[datetime, int, int, int]]]) -> set[date]:
+    """
+    Collects unique days from hourly keys.
+    :param by_hour: Dictionary of hours to entries.
+    :return: Set of touched dates.
+    """
+    return set(dt_hour.date() for dt_hour in by_hour)
 
-                # sort and write per-hour file
-                matrix = _rows_to_sorted_matrix(merged)
-                _write_csv_rows_atomic(per_hour_path, matrix)
 
-                # recompute totals from merged per-hour rows
-                totals_matrix = _aggregate_totals_from_rows(merged)
-                _write_csv_rows_atomic(total_path, totals_matrix)
-            logging.info(f"Released lock for {lock_path}")
+def update_daily_for_day(dt_day: date) -> None:
+    """
+    Updates daily files by aggregating all hourly data for the day.
+    :param dt_day: Date for the day.
+    :return: None
+    """
+    per_day_path, total_path, lock_path = get_day_file_paths(dt_day)
+    lock = FileLock(str(lock_path), timeout=10)
+    logging.info(f"Acquiring lock for {lock_path} (day: {dt_day})")
+    try:
+        with lock:
+            logging.info(f"Acquired lock for {lock_path}")
+            all_rows = []
+            for hh in range(24):
+                dt_hour = datetime(dt_day.year, dt_day.month, dt_day.day, hh, 0, 0)
+                per_hour_path, _, _ = get_hour_file_paths(dt_hour)
+                if per_hour_path.exists():
+                    all_rows.extend(read_csv_rows(per_hour_path))
+            matrix = rows_to_sorted_matrix(all_rows)
+            write_csv_rows_atomic(per_day_path, matrix, is_total=False)
+            totals_matrix = aggregate_totals_from_rows(all_rows)
+            write_csv_rows_atomic(total_path, totals_matrix, is_total=True)
+        logging.info(f"Released lock for {lock_path}")
+        try:
+            lock_path.unlink()
+        except Exception as e:
+            print(e)
+    except filelock.Timeout:
+        logging.error(f"Timeout acquiring lock for {lock_path}")
+        raise
 
-            try:
-                lock_path.unlink()
-            except Exception as e:
-                print(e)
-        except filelock.Timeout:
-            logging.error(f"Timeout acquiring lock for {lock_path} - possible contention or stale lock")
-            # propagate or handle as before
-            raise
-    # optionally delete the input file (if still exists)
+
+def process_losses_sync(room: int, file: Path) -> None:
+    """
+    Synchronous processing of losses file, updating hourly and daily files.
+    :param room: Room number.
+    :param file: Path to input JSON file.
+    :return: None
+    """
+    with file.open("r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    by_hour = group_data_by_hour(data)
+    for dt_hour, entries in by_hour.items():
+        update_hourly_files(dt_hour, entries, room)
+    touched_days = collect_touched_days(by_hour)
+    for dt_day in touched_days:
+        update_daily_for_day(dt_day)
     try:
         file.unlink()
     except Exception as e:
@@ -349,8 +387,10 @@ def _process_losses_sync(room: int, file: Path):
 
 async def process_losses(room: int, file: Path) -> None:
     """
-    Асинхронная оболочка, которая выполнит синхронную работу в отдельном потоке.
-    После успешной обработки входной json-файл удаляется.
+    Asynchronous wrapper to process losses in a separate thread.
+    :param room: Room number.
+    :param file: Path to input JSON file.
+    :return: None
     """
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _process_losses_sync, room, file)
+    await loop.run_in_executor(None, process_losses_sync, room, file)
