@@ -13,7 +13,7 @@ services:
   ethercheck-nginx:
     image: nginx:latest
     ports:
-      - "5890:80"  # внешний порт
+      - "80:80"  # внешний порт
     volumes:
       - ./data:/app/data  # общая папка для /list
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
