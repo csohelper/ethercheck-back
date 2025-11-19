@@ -200,7 +200,7 @@
 </div>
 
 <script>
-    luxon.Settings.defaultLocale = 'en';
+    luxon.Settings.defaultLocale = 'ru';
 
     let chart = null;
     flatpickr("#start,#end", {
@@ -261,16 +261,16 @@
                     x: {
                         type: "time",
                         time: {
-                            unit: "minute",
-                            displayFormats: {
-                                minute: "MM.DD HH:mm"
-                            }
+                            unit: "minute"
                         },
                         ticks: {
                             autoSkip: true,
-                            maxTicksLimit: 20,
-                            maxRotation: 55,
-                            minRotation: 45
+                            maxTicksLimit: 8,
+                            maxRotation: 90,
+                            minRotation: 0,
+                            callback: function (value) {
+                                return luxon.DateTime.fromMillis(value).toFormat('dd.MM HH:mm');
+                            }
                         }
                     },
                     y: {beginAtZero: true}
@@ -295,15 +295,11 @@
                             pinch: {
                                 enabled: true
                             },
-                            drag: {
-                                enabled: true
-                            },
                             mode: 'x',
                         },
                         pan: {
                             enabled: true,
-                            mode: 'x',
-                            modifierKey: 'shift'  // Hold shift to pan
+                            mode: 'x'
                         }
                     }
                 },
