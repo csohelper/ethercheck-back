@@ -200,6 +200,8 @@
 </div>
 
 <script>
+    luxon.Settings.defaultLocale = 'en';
+
     let chart = null;
     flatpickr("#start,#end", {
         enableTime: true,
@@ -261,14 +263,14 @@
                         time: {
                             unit: "minute",
                             displayFormats: {
-                                minute: "MMM DD HH:mm"
+                                minute: "MM.DD HH:mm"
                             }
                         },
                         ticks: {
                             autoSkip: true,
                             maxTicksLimit: 20,
-                            maxRotation: 90,
-                            minRotation: 90
+                            maxRotation: 55,
+                            minRotation: 45
                         }
                     },
                     y: {beginAtZero: true}
@@ -293,11 +295,15 @@
                             pinch: {
                                 enabled: true
                             },
+                            drag: {
+                                enabled: true
+                            },
                             mode: 'x',
                         },
                         pan: {
                             enabled: true,
                             mode: 'x',
+                            modifierKey: 'shift'  // Hold shift to pan
                         }
                     }
                 },
