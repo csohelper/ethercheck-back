@@ -235,20 +235,72 @@ def _upsert_per_hour_rows(
     return existing
 
 
+def _normalize_counts(packets_raw, reached_raw, losses_raw):
+    """
+    Нормализация и вычисление losses при отсутствии явного поля.
+    Возвращает tuple (packets:int, reached:int, losses:int).
+    Политика:
+      - если losses_raw is not None -> используем его (int)
+      - иначе losses = packets - reached
+      - если reached > packets -> логируем предупреждение и приводим reached = packets, losses = 0
+      - гарантируем non-negative losses
+    """
+    try:
+        packets = int(packets_raw)
+    except Exception:
+        packets = 0
+    try:
+        reached = int(reached_raw)
+    except Exception:
+        reached = 0
+
+    if losses_raw is not None:
+        try:
+            losses = int(losses_raw)
+        except Exception:
+            losses = max(0, packets - reached)
+    else:
+        losses = packets - reached
+
+    # Sanitize: prevent negative losses
+    if losses < 0:
+        # Если reached > packets — аномалия. Сжимаем reached до packets и делаем losses=0
+        logging.warning(
+            "Calculated negative losses (packets=%r, reached=%r, losses=%r). "
+            "Clamping: setting reached=min(reached, packets) and losses=max(0, packets-reached).",
+            packets, reached, losses
+        )
+        reached = min(reached, packets)
+        losses = max(0, packets - reached)
+
+    # Also ensure reached isn't negative
+    if reached < 0:
+        logging.warning("Negative 'reached' value %r -> setting to 0", reached)
+        reached = 0
+
+    return packets, reached, losses
+
+
 def _process_losses_sync(room: int, file: Path):
     # 1) read input json
     with file.open("r", encoding="utf-8") as fh:
         data = json.load(fh)
-    # data: dict[str timestamp -> dict with packets/reached/losses]
+    # data: dict[str timestamp -> dict with packets/reached/(optional losses)]
 
     # group incoming records by their hour (dt.replace(minute=0))
     by_hour: Dict[datetime, List[Tuple[datetime, int, int, int]]] = {}
     for ts_str, vals in data.items():
         dt = _parse_timestamp(ts_str)
         dt_hour = dt.replace(minute=0, second=0, microsecond=0)
-        packets = int(vals.get("packets", 0))
-        reached = int(vals.get("reached", 0))
-        losses = int(vals.get("losses", 0))
+
+        # Compat: vals may contain 'packets', 'reached', and optionally 'losses'
+        packets_raw = vals.get("packets", 0)
+        reached_raw = vals.get("reached", 0)
+        # Use .get to allow absence of 'losses' key
+        losses_raw = vals.get("losses", None)
+
+        packets, reached, losses = _normalize_counts(packets_raw, reached_raw, losses_raw)
+
         by_hour.setdefault(dt_hour, []).append((dt, packets, reached, losses))
 
     # For each hour touched, update per-hour and total files
@@ -279,17 +331,20 @@ def _process_losses_sync(room: int, file: Path):
                 totals_matrix = _aggregate_totals_from_rows(merged)
                 _write_csv_rows_atomic(total_path, totals_matrix)
             logging.info(f"Released lock for {lock_path}")
-            file.unlink()
+
+            try:
+                lock_path.unlink()
+            except Exception as e:
+                print(e)
         except filelock.Timeout:
             logging.error(f"Timeout acquiring lock for {lock_path} - possible contention or stale lock")
-            # Optionally: retry logic or skip, but for now, raise to propagate error
+            # propagate or handle as before
             raise
-
-    # optionally delete the input file
+    # optionally delete the input file (if still exists)
     try:
         file.unlink()
-    except Exception:
-        pass
+    except Exception as e:
+        print(e)
 
 
 async def process_losses(room: int, file: Path) -> None:
