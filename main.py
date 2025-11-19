@@ -1,0 +1,87 @@
+import os
+import shutil
+from pathlib import Path
+import asyncio
+import aiofiles
+from quart import Quart, request, jsonify
+from werkzeug.utils import secure_filename
+from hypercorn.asyncio import serve
+from hypercorn.config import Config
+import zipfile
+
+from losses_proccessor import process_losses
+
+app = Quart(__name__)
+
+
+# TODO
+async def process_ping(room: int, file: Path):
+    pass
+
+
+# TODO
+async def process_trace(room: int, file: Path):
+    pass
+
+
+async def append_analytics(room: int, file: Path) -> None:
+    # Целевая папка = имя файла без .zip
+    target_dir = file.with_suffix("")
+
+    # 1. Распаковка
+    target_dir.mkdir(exist_ok=True)
+    with zipfile.ZipFile(file, "r") as zip_ref:
+        zip_ref.extractall(target_dir)
+
+    # 2. Поиск файлов внутри папки
+    ping_file = next(target_dir.glob("ping_*.jsonl"), None)
+    trace_file = next(target_dir.glob("trace_*.jsonl"), None)
+    losses_file = next(target_dir.glob("losses_*.json"), None)
+
+    # 3. Передать их в обработчики (если файлы есть)
+    if ping_file:
+        await process_ping(room, ping_file)
+
+    if trace_file:
+        await process_trace(room, trace_file)
+
+    if losses_file:
+        await process_losses(room, losses_file)
+
+    # 4. Удаление всей временной директории
+    shutil.rmtree(target_dir)
+
+
+@app.route('/upload/<int:room>/', methods=['POST'])
+async def upload_data(room: int):
+    file = (await request.files).get('file')
+
+    if not file:
+        return jsonify({"error": "No file part"}), 400
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    if not file.filename.endswith('.zip'):
+        return jsonify({"error": "Invalid file type"}), 400
+
+    filename = secure_filename(file.filename)
+    join = Path(f'data/{room}') / filename
+    os.makedirs(join.parent, exist_ok=True)
+
+    # Асинхронная запись файла
+    async with aiofiles.open(join, 'wb') as f:
+        content = file.read()
+        await f.write(content)
+
+    await append_analytics(room, join)
+
+    return jsonify({"status": "success"}), 200
+
+
+async def main():
+    config = Config()
+    config.bind = ["0.0.0.0:8080"]
+    await serve(app, config)
+
+
+if __name__ == '__main__':
+    asyncio.run(main())
