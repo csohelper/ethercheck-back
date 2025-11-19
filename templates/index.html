@@ -33,8 +33,17 @@
             margin-bottom: 20px;
         }
 
-        select[multiple] {
-            height: 300px;
+        .rooms-list {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #30363d;
+            padding: 10px;
+            border-radius: 6px;
+        }
+
+        .rooms-list label {
+            display: block;
+            margin-bottom: 5px;
         }
 
         canvas {
@@ -72,12 +81,16 @@
         </div>
         <div>
             <label>Комнаты:</label><br>
-            <select id="rooms" multiple size="10">
-                <option value="total" selected>Суммарно по всем комнатам</option>
+            <div class="rooms-list">
+                <label>
+                    <input type="checkbox" name="rooms" value="total" checked> Суммарно по всем комнатам
+                </label>
                 {% for room in rooms %}
-                <option value="{{ room }}">Комната {{ room }}</option>
+                <label>
+                    <input type="checkbox" name="rooms" value="{{ room }}"> Комната {{ room }}
+                </label>
                 {% endfor %}
-            </select>
+            </div>
         </div>
         <button onclick="load()">Показать</button>
     </div>
@@ -91,13 +104,44 @@
         enableTime: true,
         dateFormat: "Y-m-d H",
         time_24hr: true,
-        minuteIncrement: 60  // Опционально: шаг в 60 мин, чтобы минуты всегда были 00 и не отвлекали
+        minuteIncrement: 60
     });
+
+    const roomCheckboxes = document.querySelectorAll('input[name="rooms"]');
+    const totalCheckbox = document.querySelector('input[value="total"]');
+    const otherCheckboxes = Array.from(roomCheckboxes).filter(cb => cb.value !== 'total');
+
+    roomCheckboxes.forEach(cb => {
+        cb.addEventListener('change', function () {
+            if (this.value === 'total' && this.checked) {
+                // Если total выбран, снимаем выбор и отключаем остальные
+                otherCheckboxes.forEach(other => {
+                    other.checked = false;
+                    other.disabled = true;
+                });
+            } else if (this.value === 'total' && !this.checked) {
+                // Если total снят, включаем остальные
+                otherCheckboxes.forEach(other => other.disabled = false);
+            } else {
+                // Если выбрана комната, снимаем total и отключаем его
+                const anyRoomChecked = otherCheckboxes.some(other => other.checked);
+                if (anyRoomChecked) {
+                    totalCheckbox.checked = false;
+                    totalCheckbox.disabled = true;
+                } else {
+                    totalCheckbox.disabled = false;
+                }
+            }
+        });
+    });
+
+    // Инициализация: поскольку total по умолчанию checked, отключить остальные
+    otherCheckboxes.forEach(other => other.disabled = true);
 
     async function load() {
         const start = document.getElementById("start").value;
         const end = document.getElementById("end").value;
-        const rooms = Array.from(document.querySelectorAll("#rooms option:checked")).map(o => o.value).join(",");
+        const rooms = Array.from(document.querySelectorAll('input[name="rooms"]:checked')).map(input => input.value).join(",");
 
         const resp = await fetch(`/api/data?start=${start}&end=${end}&rooms=${rooms}`);
         const json = await resp.json();
