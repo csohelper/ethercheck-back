@@ -256,7 +256,21 @@
                 maintainAspectRatio: false,
                 animation: false,
                 scales: {
-                    x: {type: "time", time: {unit: "hour", displayFormats: {hour: "HH:mm"}}},
+                    x: {
+                        type: "time",
+                        time: {
+                            unit: "minute",
+                            displayFormats: {
+                                minute: "MMM DD HH:mm"
+                            }
+                        },
+                        ticks: {
+                            autoSkip: true,
+                            maxTicksLimit: 20,
+                            maxRotation: 90,
+                            minRotation: 90
+                        }
+                    },
                     y: {beginAtZero: true}
                 },
                 plugins: {
