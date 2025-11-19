@@ -276,8 +276,8 @@
                 elements: {
                     point: {
                         radius: 0,
-                        hitRadius: 5,
-                        hoverRadius: 4
+                        hitRadius: 100,  // Большая зона захвата
+                        hoverRadius: 6
                     },
                     line: {
                         borderWidth: 2
@@ -285,7 +285,7 @@
                 },
                 scales: {
                     x: {
-                        type: "time",  // Изменено с "timeseries" на "time"
+                        type: "time",
                         time: {
                             unit: "minute",
                             displayFormats: {
@@ -310,8 +310,13 @@
                     },
                     tooltip: {
                         enabled: true,
-                        mode: 'index',
+                        mode: 'nearest',  // Ищет ближайшую точку
                         intersect: false,
+                        // УБРАЛИ axis: 'x' - теперь ищет по X и Y!
+                        // Фильтруем нулевые значения из tooltip
+                        filter: function(tooltipItem) {
+                            return tooltipItem.parsed.y > 0;
+                        },
                         callbacks: {
                             label: function (context) {
                                 return `${context.dataset.label}: ${context.parsed.y.toFixed(2)}%`;
@@ -330,7 +335,7 @@
                         zoom: {
                             wheel: {
                                 enabled: true,
-                                speed: 0.1
+                                // speed: 0.1
                             },
                             pinch: {
                                 enabled: true
@@ -338,12 +343,11 @@
                             mode: 'x',
                         }
                     }
-                    // УБРАЛИ decimation - это и было причиной проблемы!
                 },
                 interaction: {
-                    mode: 'nearest',
-                    axis: 'x',
+                    mode: 'nearest',  // Ищет ближайшую точку
                     intersect: false
+                    // УБРАЛИ axis: 'x' - теперь ищет по X и Y!
                 }
             }
         });
