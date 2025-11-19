@@ -217,8 +217,9 @@ def aggregate_totals_from_rows(rows: List[Dict[str, str]]) -> List[List[str]]:
     return out
 
 
-def upsert_per_hour_rows(existing: List[Dict[str, str]], additions: List[Dict[str, str]], room: int) -> List[
-    Dict[str, str]]:
+def upsert_per_hour_rows(
+        existing: List[Dict[str, str]], additions: List[Dict[str, str]], room: int
+) -> List[Dict[str, str]]:
     """
     Upserts additions into existing rows for a specific room.
     :param existing: Existing row dictionaries.

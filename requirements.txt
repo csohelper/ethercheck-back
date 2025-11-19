@@ -1,3 +1,4 @@
 quart
 aiofiles
 filelock
+pandas

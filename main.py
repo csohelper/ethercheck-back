@@ -9,10 +9,12 @@ from werkzeug.utils import secure_filename
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
 import zipfile
+from graph import graph_bp
 
 from losses_proccessor import process_losses
 
 app = Quart(__name__)
+app.register_blueprint(graph_bp)
 logging.basicConfig(level=logging.INFO)
 
 
