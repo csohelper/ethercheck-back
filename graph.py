@@ -1,4 +1,3 @@
-# graph.py
 import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -83,21 +82,27 @@ async def api_data():
             path = HOURS_DIR / f"losses_{key}_total.csv"
             if path.exists():
                 try:
-                    df = pd.read_csv(path, delimiter=";")
-                    df['dt'] = pd.to_datetime(df['YYYY'] + '-' + df['MM'] + '-' + df['DD'] + ' ' +
-                                              df['HH'] + ':' + df['MM_min'])
+                    df = pd.read_csv(path, delimiter=";", header=0)
+                    df.columns = ["YYYY", "MM", "DD", "HH", "MM_min", "PACKETS", "REACHES", "LOSSES", "PERCENTS"]
+                    df['dt'] = pd.to_datetime(
+                        df['YYYY'].astype(str) + '-' +
+                        df['MM'].astype(str).str.zfill(2) + '-' +
+                        df['DD'].astype(str).str.zfill(2) + ' ' +
+                        df['HH'].astype(str).str.zfill(2) + ':' +
+                        df['MM_min'].astype(str).str.zfill(2)
+                    )
                     for _, row in df.iterrows():
                         if current <= row['dt'] <= end_inclusive:
-                            losses_dict[row['dt']] = int(row['LOSSES'])
+                            losses_dict[row['dt']] = float(row['PERCENTS'])
                 except Exception as e:
                     print(e)
             hour += timedelta(hours=1)
 
-        data = [{"x": dt.isoformat(), "y": losses_dict.get(dt, 0)} for dt in timeline]
+        data = [{"x": dt.isoformat(), "y": losses_dict.get(dt, 0.0)} for dt in timeline]
 
         return jsonify({
             "datasets": [{
-                "label": "Суммарно по всем комнатам",
+                "label": "Процент потерь (суммарно по всем комнатам)",
                 "data": data,
                 "borderColor": "#ff5555",
                 "backgroundColor": "#ff555550",
@@ -115,15 +120,21 @@ async def api_data():
             path = HOURS_DIR / f"losses_{key}.csv"
             if path.exists():
                 try:
-                    df = pd.read_csv(path, delimiter=";", dtype=str)
-                    df = df[df['ROOM'].isin(map(str, selected_rooms))]
+                    df = pd.read_csv(path, delimiter=";", header=0)
+                    df.columns = ["YYYY", "MM", "DD", "HH", "MM_min", "ROOM", "PACKETS", "REACHES", "LOSSES", "PERCENTS"]
+                    df = df[df['ROOM'].isin(selected_rooms)]
                     df['dt'] = pd.to_datetime(
-                        df['YYYY'] + '-' + df['MM'] + '-' + df['DD'] + ' ' + df['HH'] + ':' + df['MM_min'])
+                        df['YYYY'].astype(str) + '-' +
+                        df['MM'].astype(str).str.zfill(2) + '-' +
+                        df['DD'].astype(str).str.zfill(2) + ' ' +
+                        df['HH'].astype(str).str.zfill(2) + ':' +
+                        df['MM_min'].astype(str).str.zfill(2)
+                    )
                     df = df[(df['dt'] >= current) & (df['dt'] <= end_inclusive)]
                     for _, r in df.iterrows():
                         room = int(r['ROOM'])
                         dt = r['dt']
-                        room_data[room][dt] = room_data[room].get(dt, 0) + int(r['LOSSES'])
+                        room_data[room][dt] = float(r['PERCENTS'])  # Not sum, since percent
                 except Exception as e:
                     print(e)
             hour += timedelta(hours=1)
@@ -131,9 +142,9 @@ async def api_data():
         colors = ["#ff5555", "#50fa7b", "#ffb86c", "#8be9fd", "#ff79c6", "#bd93f9", "#f1fa8c", "#ff6e96"]
         datasets = []
         for i, room in enumerate(sorted(selected_rooms)):
-            data = [{"x": dt.isoformat(), "y": room_data[room].get(dt, 0)} for dt in timeline]
+            data = [{"x": dt.isoformat(), "y": room_data[room].get(dt, 0.0)} for dt in timeline]
             datasets.append({
-                "label": f"Комната {room}",
+                "label": f"Процент потерь (комната {room})",
                 "data": data,
                 "borderColor": colors[i % len(colors)],
                 "backgroundColor": colors[i % len(colors)] + "50",
