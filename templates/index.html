@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Потери пакетов — Ethernet мониторинг</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/luxon"></script>
@@ -131,6 +132,39 @@
             background: #161b22;
             color: #c9d1d9;
         }
+
+        /* Mobile adaptations */
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            .card {
+                padding: 10px;
+                margin: 10px auto;
+            }
+
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .controls > div {
+                margin-bottom: 10px;
+            }
+
+            .rooms-list {
+                max-height: 200px;
+            }
+
+            canvas {
+                height: 50vh !important;
+            }
+
+            button {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
@@ -222,7 +256,24 @@
                     x: {type: "time", time: {unit: "hour", displayFormats: {hour: "HH:mm"}}},
                     y: {beginAtZero: true}
                 },
-                plugins: {legend: {position: "top"}}
+                plugins: {
+                    legend: {position: "top"},
+                    tooltip: {
+                        enabled: true,
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            label: function (context) {
+                                return `${context.dataset.label}: ${context.parsed.y.toFixed(2)}%`;
+                            }
+                        }
+                    }
+                },
+                interaction: {
+                    mode: 'nearest',
+                    axis: 'x',
+                    intersect: false
+                }
             }
         });
 
