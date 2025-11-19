@@ -1,12 +1,14 @@
 import asyncio
 import csv
 import json
+import logging
 import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Tuple, TypedDict
 
+import filelock
 # Удобная блокировка для конкурентного доступа (pip install filelock)
 from filelock import FileLock
 
@@ -253,26 +255,35 @@ def _process_losses_sync(room: int, file: Path):
     for dt_hour, entries in by_hour.items():
         per_hour_path, total_path, lock_path = _hour_file_paths_for_dt_hour(dt_hour)
         # use file lock to prevent concurrent modifications
-        lock = FileLock(str(lock_path))
-        with lock:
-            # read existing per-hour rows
-            existing_rows = _read_csv_rows(per_hour_path)
+        lock = FileLock(str(lock_path), timeout=10)  # Add timeout to prevent infinite wait
+        logging.info(f"Acquiring lock for {lock_path} (hour: {dt_hour})")
+        try:
+            with lock:
+                logging.info(f"Acquired lock for {lock_path}")
+                # read existing per-hour rows
+                existing_rows = _read_csv_rows(per_hour_path)
 
-            # build additions rows (for this room)
-            additions = []
-            for dt, packets, reached, losses in entries:
-                additions.append(_row_from_values(dt, room, packets, reached, losses))
+                # build additions rows (for this room)
+                additions = []
+                for dt, packets, reached, losses in entries:
+                    additions.append(_row_from_values(dt, room, packets, reached, losses))
 
-            # upsert
-            merged = _upsert_per_hour_rows(existing_rows, additions, room)
+                # upsert
+                merged = _upsert_per_hour_rows(existing_rows, additions, room)
 
-            # sort and write per-hour file
-            matrix = _rows_to_sorted_matrix(merged)
-            _write_csv_rows_atomic(per_hour_path, matrix)
+                # sort and write per-hour file
+                matrix = _rows_to_sorted_matrix(merged)
+                _write_csv_rows_atomic(per_hour_path, matrix)
 
-            # recompute totals from merged per-hour rows
-            totals_matrix = _aggregate_totals_from_rows(merged)
-            _write_csv_rows_atomic(total_path, totals_matrix)
+                # recompute totals from merged per-hour rows
+                totals_matrix = _aggregate_totals_from_rows(merged)
+                _write_csv_rows_atomic(total_path, totals_matrix)
+            logging.info(f"Released lock for {lock_path}")
+            file.unlink()
+        except filelock.Timeout:
+            logging.error(f"Timeout acquiring lock for {lock_path} - possible contention or stale lock")
+            # Optionally: retry logic or skip, but for now, raise to propagate error
+            raise
 
     # optionally delete the input file
     try:

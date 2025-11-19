@@ -1,3 +1,4 @@
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -12,6 +13,7 @@ import zipfile
 from losses_proccessor import process_losses
 
 app = Quart(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 # TODO
