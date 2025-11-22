@@ -190,11 +190,11 @@
     <div class="controls">
         <div>
             <label>Начало (час):</label><br>
-            <input id="start" value="2025-11-19 00">
+            <input id="start">
         </div>
         <div>
             <label>Конец (час):</label><br>
-            <input id="end" value="2025-11-19 23">
+            <input id="end">
         </div>
         <div>
             <label>Комнаты:</label><br>
@@ -216,22 +216,27 @@
         <canvas id="chart"></canvas>
     </div>
 </div>
-
 <script>
     luxon.Settings.defaultLocale = 'ru';
-
     let chart = null;
+
+    // Установка дат по умолчанию
+    const now = luxon.DateTime.now();
+    const startDefault = now.startOf('day').toFormat('yyyy-MM-dd HH');
+    const endDefault = now.endOf('day').set({hour: 23, minute: 59}).toFormat('yyyy-MM-dd HH');
+
+    document.getElementById("start").value = startDefault;
+    document.getElementById("end").value = endDefault;
+
     flatpickr("#start,#end", {
         enableTime: true,
         dateFormat: "Y-m-d H",
         time_24hr: true,
         minuteIncrement: 60
     });
-
     const roomCheckboxes = document.querySelectorAll('input[name="rooms"]');
     const totalCheckbox = document.querySelector('input[value="total"]');
     const otherCheckboxes = Array.from(roomCheckboxes).filter(cb => cb.value !== 'total');
-
     roomCheckboxes.forEach(cb => {
         cb.addEventListener('change', function () {
             if (this.value === 'total' && this.checked) {
@@ -252,19 +257,15 @@
             }
         });
     });
-
     otherCheckboxes.forEach(other => other.disabled = true);
 
     async function load() {
         const start = document.getElementById("start").value;
         const end = document.getElementById("end").value;
         const rooms = Array.from(document.querySelectorAll('input[name="rooms"]:checked')).map(input => input.value).join(",");
-
         const resp = await fetch(`/api/data?start=${start}&end=${end}&rooms=${rooms}`);
         const json = await resp.json();
-
         if (chart) chart.destroy();
-
         const ctx = document.getElementById("chart");
         chart = new Chart(ctx, {
             type: "line",
@@ -276,7 +277,7 @@
                 elements: {
                     point: {
                         radius: 0,
-                        hitRadius: 100,  // Большая зона захвата
+                        hitRadius: 100, // Большая зона захвата
                         hoverRadius: 6
                     },
                     line: {
@@ -301,7 +302,8 @@
                         }
                     },
                     y: {
-                        beginAtZero: true
+                        min: 0,
+                        max: 100
                     }
                 },
                 plugins: {
@@ -310,11 +312,11 @@
                     },
                     tooltip: {
                         enabled: true,
-                        mode: 'nearest',  // Ищет ближайшую точку
+                        mode: 'nearest', // Ищет ближайшую точку
                         intersect: false,
                         // УБРАЛИ axis: 'x' - теперь ищет по X и Y!
                         // Фильтруем нулевые значения из tooltip
-                        filter: function(tooltipItem) {
+                        filter: function (tooltipItem) {
                             return tooltipItem.parsed.y > 0;
                         },
                         callbacks: {
@@ -345,13 +347,12 @@
                     }
                 },
                 interaction: {
-                    mode: 'nearest',  // Ищет ближайшую точку
+                    mode: 'nearest', // Ищет ближайшую точку
                     intersect: false
                     // УБРАЛИ axis: 'x' - теперь ищет по X и Y!
                 }
             }
         });
-
         let total = 0, max = 0;
         json.datasets.forEach(ds => ds.data.forEach(p => {
             total += p.y;
