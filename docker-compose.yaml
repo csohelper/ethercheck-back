@@ -31,5 +31,6 @@ services:
       - ./certbot/conf:/etc/letsencrypt:rw
     depends_on:
       - ethercheck-nginx
+    entrypoint: [ "/bin/sh","-c" ]
     command: echo "Certbot container ready"
     network_mode: host
