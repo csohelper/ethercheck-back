@@ -234,39 +234,57 @@
         time_24hr: true,
         minuteIncrement: 60
     });
-    const roomCheckboxes = document.querySelectorAll('input[name="rooms"]');
+
+    // === НОВАЯ ЛОГИКА ЧЕКБОКСОВ ===
     const totalCheckbox = document.querySelector('input[value="total"]');
-    const otherCheckboxes = Array.from(roomCheckboxes).filter(cb => cb.value !== 'total');
-    roomCheckboxes.forEach(cb => {
-        cb.addEventListener('change', function () {
-            if (this.value === 'total' && this.checked) {
-                otherCheckboxes.forEach(other => {
-                    other.checked = false;
-                    other.disabled = true;
-                });
-            } else if (this.value === 'total' && !this.checked) {
-                otherCheckboxes.forEach(other => other.disabled = false);
+    const roomCheckboxes = document.querySelectorAll('input[name="rooms"]:not([value="total"])');
+
+    // Обработчик изменения любого чекбокса
+    document.querySelectorAll('input[name="rooms"]').forEach(checkbox => {
+        checkbox.addEventListener('change', function () {
+            if (this.value === 'total') {
+                // Клик по "Суммарно по всем комнатам"
+                if (this.checked) {
+                    roomCheckboxes.forEach(cb => cb.checked = false);
+                }
             } else {
-                const anyRoomChecked = otherCheckboxes.some(other => other.checked);
-                if (anyRoomChecked) {
+                // Клик по отдельной комнате
+                if (this.checked) {
                     totalCheckbox.checked = false;
-                    totalCheckbox.disabled = true;
                 } else {
-                    totalCheckbox.disabled = false;
+                    // Если сняли последнюю комнату — автоматически включаем "Все"
+                    const anyRoomChecked = Array.from(roomCheckboxes).some(cb => cb.checked);
+                    if (!anyRoomChecked) {
+                        totalCheckbox.checked = true;
+                    }
                 }
             }
         });
     });
-    otherCheckboxes.forEach(other => other.disabled = true);
+
+    // Инициализация: если "Все" уже отмечено — снимаем остальные (на всякий случай)
+    if (totalCheckbox.checked) {
+        roomCheckboxes.forEach(cb => cb.checked = false);
+    }
+
+    // Больше НИКАКИХ disabled! Все чекбоксы всегда активны
 
     async function load() {
         const start = document.getElementById("start").value;
         const end = document.getElementById("end").value;
-        const rooms = Array.from(document.querySelectorAll('input[name="rooms"]:checked')).map(input => input.value).join(",");
-        const resp = await fetch(`/api/data?start=${start}&end=${end}&rooms=${rooms}`);
+        const rooms = Array.from(document.querySelectorAll('input[name="rooms"]:checked'))
+            .map(input => input.value)
+            .filter(val => val !== 'total')  // "total" не отправляем на бэк
+            .join(",");
+
+        // Если выбрано "total" или ничего не выбрано — отправляем пустую строку или специальное значение
+        const finalRooms = totalCheckbox.checked || rooms === "" ? "total" : rooms;
+
+        const resp = await fetch(`/api/data?start=${start}&end=${end}&rooms=${finalRooms}`);
         const json = await resp.json();
+
         if (chart) chart.destroy();
-        const ctx = document.getElementById("chart");
+        const ctx = document.getElementById("chart").getContext("2d");
         chart = new Chart(ctx, {
             type: "line",
             data: {datasets: json.datasets},
@@ -275,14 +293,8 @@
                 maintainAspectRatio: false,
                 animation: false,
                 elements: {
-                    point: {
-                        radius: 0,
-                        hitRadius: 100, // Большая зона захвата
-                        hoverRadius: 6
-                    },
-                    line: {
-                        borderWidth: 2
-                    }
+                    point: {radius: 0, hitRadius: 100, hoverRadius: 6},
+                    line: {borderWidth: 2}
                 },
                 scales: {
                     x: {
@@ -294,17 +306,9 @@
                                 hour: 'dd.MM HH:mm'
                             }
                         },
-                        ticks: {
-                            autoSkip: true,
-                            maxTicksLimit: 12,
-                            maxRotation: 90,
-                            minRotation: 0
-                        }
+                        ticks: {autoSkip: true, maxTicksLimit: 12, maxRotation: 90, minRotation: 0}
                     },
-                    y: {
-                        min: 0,
-                        max: 100
-                    }
+                    y: {min: 0, max: 100}
                 },
                 plugins: {
                     legend: {
@@ -312,10 +316,8 @@
                     },
                     tooltip: {
                         enabled: true,
-                        mode: 'nearest', // Ищет ближайшую точку
+                        mode: 'nearest',
                         intersect: false,
-                        // УБРАЛИ axis: 'x' - теперь ищет по X и Y!
-                        // Фильтруем нулевые значения из tooltip
                         filter: function (tooltipItem) {
                             return tooltipItem.parsed.y > 0;
                         },
@@ -347,17 +349,11 @@
                     }
                 },
                 interaction: {
-                    mode: 'nearest', // Ищет ближайшую точку
+                    mode: 'nearest',
                     intersect: false
-                    // УБРАЛИ axis: 'x' - теперь ищет по X и Y!
                 }
             }
         });
-        let total = 0, max = 0;
-        json.datasets.forEach(ds => ds.data.forEach(p => {
-            total += p.y;
-            if (p.y > max) max = p.y;
-        }));
     }
 
     window.onload = () => load();

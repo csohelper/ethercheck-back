@@ -103,7 +103,8 @@ async def api_data():
         return jsonify({"error": "Формат: YYYY-MM-DD HH", "message": str(e)}), 400
 
     selected_rooms = rooms_param.split(",")
-    aggregate = "total" in rooms_param
+    if "total" in rooms_param:
+        selected_rooms = await get_all_rooms()
 
     # Включительно оба конца: от start:00 до end:59
     current = start_dt.replace(minute=0, second=0)
@@ -111,91 +112,49 @@ async def api_data():
 
     timeline = pd.date_range(current, end_inclusive, freq="min")
 
-    if aggregate or not selected_rooms:
-        # Суммарно по всем — только _total.csv
-        losses_dict = {}
-        hour = current.replace(minute=0)
-        while hour <= end_dt:
-            key = hour.strftime("%Y-%m-%d_%H")
-            path = HOURS_DIR / f"losses_{key}_total.csv"
-            if path.exists():
-                try:
-                    df = pd.read_csv(path, delimiter=";", header=0)
-                    df.columns = ["YYYY", "MM", "DD", "HH", "MM_min", "PACKETS", "REACHES", "LOSSES", "PERCENTS"]
-                    df['dt'] = pd.to_datetime(
-                        df['YYYY'].astype(str) + '-' +
-                        df['MM'].astype(str).str.zfill(2) + '-' +
-                        df['DD'].astype(str).str.zfill(2) + ' ' +
-                        df['HH'].astype(str).str.zfill(2) + ':' +
-                        df['MM_min'].astype(str).str.zfill(2)
-                    )
-                    for _, row in df.iterrows():
-                        if current <= row['dt'] <= end_inclusive:
-                            losses_dict[row['dt']] = float(row['PERCENTS'])
-                except Exception as e:
-                    logging.error(e)
-            hour += timedelta(hours=1)
+    # По комнатам
+    room_data = {room: {} for room in selected_rooms}
+    hour = current.replace(minute=0)
+    while hour <= end_dt:
+        key = hour.strftime("%Y-%m-%d_%H")
+        path = HOURS_DIR / f"losses_{key}.csv"
+        if path.exists():
+            try:
+                df = pd.read_csv(path, delimiter=";", header=0)
+                df.columns = ["YYYY", "MM", "DD", "HH", "MM_min", "ROOM", "PACKETS", "REACHES", "LOSSES",
+                              "PERCENTS"]
+                df = df[df['ROOM'].isin(selected_rooms)]
+                df['dt'] = pd.to_datetime(
+                    df['YYYY'].astype(str) + '-' +
+                    df['MM'].astype(str).str.zfill(2) + '-' +
+                    df['DD'].astype(str).str.zfill(2) + ' ' +
+                    df['HH'].astype(str).str.zfill(2) + ':' +
+                    df['MM_min'].astype(str).str.zfill(2)
+                )
+                df = df[(df['dt'] >= current) & (df['dt'] <= end_inclusive)]
+                for _, r in df.iterrows():
+                    room = r['ROOM']
+                    dt = r['dt']
+                    room_data[room][dt] = float(r['PERCENTS'])
+            except Exception as e:
+                logging.error(e)
+        hour += timedelta(hours=1)
 
-        data = [{"x": dt.isoformat(), "y": losses_dict.get(dt, 0.0)} for dt in timeline]
+    colors = ["#ff5555", "#50fa7b", "#ffb86c", "#8be9fd", "#ff79c6", "#bd93f9", "#f1fa8c", "#ff6e96"]
+    datasets = []
+    for i, room in enumerate(sorted(selected_rooms)):
+        data = [{"x": dt.isoformat(), "y": room_data[room].get(dt, 0.0)} for dt in timeline]
 
         # Оптимизация для stepped графиков
         data = optimize_stepped_data(data)
 
-        return jsonify({
-            "datasets": [{
-                "label": "Процент потерь (суммарно по всем комнатам)",
-                "data": data,
-                "borderColor": "#ff5555",
-                "backgroundColor": "#ff555550",
-                "fill": True,
-                # "stepped": "before"
-            }]
+        datasets.append({
+            "label": f"Процент потерь (комната {room})",
+            "data": data,
+            "borderColor": colors[i % len(colors)],
+            "backgroundColor": colors[i % len(colors)] + "50",
+            "fill": True,
+            "stepped": "before"
         })
 
-    else:
-        # По комнатам
-        room_data = {room: {} for room in selected_rooms}
-        hour = current.replace(minute=0)
-        while hour <= end_dt:
-            key = hour.strftime("%Y-%m-%d_%H")
-            path = HOURS_DIR / f"losses_{key}.csv"
-            if path.exists():
-                try:
-                    df = pd.read_csv(path, delimiter=";", header=0)
-                    df.columns = ["YYYY", "MM", "DD", "HH", "MM_min", "ROOM", "PACKETS", "REACHES", "LOSSES",
-                                  "PERCENTS"]
-                    df = df[df['ROOM'].isin(selected_rooms)]
-                    df['dt'] = pd.to_datetime(
-                        df['YYYY'].astype(str) + '-' +
-                        df['MM'].astype(str).str.zfill(2) + '-' +
-                        df['DD'].astype(str).str.zfill(2) + ' ' +
-                        df['HH'].astype(str).str.zfill(2) + ':' +
-                        df['MM_min'].astype(str).str.zfill(2)
-                    )
-                    df = df[(df['dt'] >= current) & (df['dt'] <= end_inclusive)]
-                    for _, r in df.iterrows():
-                        room = int(r['ROOM'])
-                        dt = r['dt']
-                        room_data[room][dt] = float(r['PERCENTS'])
-                except Exception as e:
-                    logging.error(e)
-            hour += timedelta(hours=1)
-
-        colors = ["#ff5555", "#50fa7b", "#ffb86c", "#8be9fd", "#ff79c6", "#bd93f9", "#f1fa8c", "#ff6e96"]
-        datasets = []
-        for i, room in enumerate(sorted(selected_rooms)):
-            data = [{"x": dt.isoformat(), "y": room_data[room].get(dt, 0.0)} for dt in timeline]
-
-            # Оптимизация для stepped графиков
-            data = optimize_stepped_data(data)
-
-            datasets.append({
-                "label": f"Процент потерь (комната {room})",
-                "data": data,
-                "borderColor": colors[i % len(colors)],
-                "backgroundColor": colors[i % len(colors)] + "50",
-                "fill": True,
-                "stepped": "before"
-            })
-
-        return jsonify({"datasets": datasets})
+    return jsonify({"datasets": datasets})
