@@ -21,7 +21,7 @@ HOURS_DIR = Path("data/losses/hours")
 _rooms_cache = None
 _cache_time: datetime | None = None
 
-colors = ["#ff5555", "#50fa7b", "#ffb86c", "#8be9fd", "#ff79c6", "#bd93f9", "#f1fa8c", "#ff6e96"]
+colors = ['#f1fa8c', '#ffb86c', '#ff6e96', '#ff79c6', '#8be9fd', '#50fa7b', '#ff5555', '#bd93f9']
 
 
 def optimize_stepped_data(data: list[dict]) -> list[dict]:
