@@ -166,7 +166,7 @@ async def api_data():
         data = optimize_stepped_data(data)
 
         datasets.append({
-            "label": f"Процент потерь (комната {room})",
+            "label": str(room),
             "data": data,
             "borderColor": color,
             "backgroundColor": color + "50",
