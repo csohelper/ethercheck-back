@@ -274,7 +274,7 @@
         const end = document.getElementById("end").value;
         const rooms = Array.from(document.querySelectorAll('input[name="rooms"]:checked'))
             .map(input => input.value)
-            .filter(val => val !== 'total')  // "total" не отправляем на бэк
+            .filter(val => val !== 'total')  // "total" не отпавляем на бэк
             .join(",");
 
         // Если выбрано "total" или ничего не выбрано — отправляем пустую строку или специальное значение

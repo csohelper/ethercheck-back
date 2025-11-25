@@ -140,7 +140,7 @@ async def api_data():
                 logging.error(e)
         hour += timedelta(hours=1)
 
-    colors = ["#ff5555", "#50fa7b", "#ffb86c", "#8be9fd", "#ff79c6", "#bd93f9", "#f1fa8c", "#ff6e96"]
+    colors = ["#ff555588", "#50fa7b88", "#ffb86c88", "#8be9fd88", "#ff79c688", "#bd93f988", "#f1fa8c88", "#ff6e9688"]
     datasets = []
     for i, room in enumerate(sorted(selected_rooms)):
         data = [{"x": dt.isoformat(), "y": room_data[room].get(dt, 0.0)} for dt in timeline]
