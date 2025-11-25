@@ -222,15 +222,15 @@
 
     // Установка дат по умолчанию
     const now = luxon.DateTime.now();
-    const startDefault = now.minus({ hours: 8 }).startOf('hour').toFormat('yyyy-MM-dd HH:mm');
-    const endDefault = now.startOf('hour').toFormat('yyyy-MM-dd HH:mm');
+    const startDefault = now.minus({ hours: 8 }).toFormat('yyyy-MM-dd HH:mm');
+    const endDefault = now.toFormat('yyyy-MM-dd HH:mm');
 
     document.getElementById("start").value = startDefault;
     document.getElementById("end").value = endDefault;
 
     flatpickr("#start,#end", {
         enableTime: true,
-        dateFormat: "Y-m-d H:mm",
+        dateFormat: "Y-m-d H:i",
         time_24hr: true,
         minuteIncrement: 60
     });
