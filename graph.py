@@ -118,24 +118,22 @@ async def api_data():
         return jsonify({"error": "start и end обязательны"}), 400
 
     try:
-        start_dt = datetime.strptime(start_str, "%Y-%m-%d %H")
-        end_dt = datetime.strptime(end_str, "%Y-%m-%d %H")
+        start_dt = datetime.strptime(start_str, "%Y-%m-%d %H:%M")
+        end_dt = datetime.strptime(end_str, "%Y-%m-%d %H:%M")
     except Exception as e:
-        return jsonify({"error": "Формат: YYYY-MM-DD HH", "message": str(e)}), 400
+        return jsonify({"error": "Формат: YYYY-MM-DD HH-mm", "message": str(e)}), 400
 
     selected_rooms = rooms_param.split(",")
     if "total" in rooms_param:
         selected_rooms = await get_all_rooms()
 
     # Включительно оба конца: от start:00 до end:59
-    current = start_dt.replace(minute=0, second=0)
-    end_inclusive = end_dt.replace(hour=end_dt.hour, minute=59, second=59)
 
-    timeline = pd.date_range(current, end_inclusive, freq="min")
+    timeline = pd.date_range(start_dt, end_dt, freq="min")
 
     # По комнатам
     room_data = {room: {} for room in selected_rooms}
-    hour = current.replace(minute=0)
+    hour = start_dt.replace(minute=0)
     while hour <= end_dt:
         key = hour.strftime("%Y-%m-%d_%H")
         path = HOURS_DIR / f"losses_{key}.csv"
@@ -152,7 +150,7 @@ async def api_data():
                     df['HH'].astype(str).str.zfill(2) + ':' +
                     df['MM_min'].astype(str).str.zfill(2)
                 )
-                df = df[(df['dt'] >= current) & (df['dt'] <= end_inclusive)]
+                df = df[(df['dt'] >= start_dt) & (df['dt'] <= end_dt)]
                 for _, r in df.iterrows():
                     room = r['ROOM']
                     dt = r['dt']

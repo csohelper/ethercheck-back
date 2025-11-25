@@ -189,11 +189,11 @@
     <h1>Потери пакетов</h1>
     <div class="controls">
         <div>
-            <label>Начало (час):</label><br>
+            <label>Начало:</label><br>
             <input id="start">
         </div>
         <div>
-            <label>Конец (час):</label><br>
+            <label>Конец:</label><br>
             <input id="end">
         </div>
         <div>
@@ -222,15 +222,15 @@
 
     // Установка дат по умолчанию
     const now = luxon.DateTime.now();
-    const startDefault = now.startOf('day').toFormat('yyyy-MM-dd HH');
-    const endDefault = now.endOf('day').set({hour: 23, minute: 59}).toFormat('yyyy-MM-dd HH');
+    const startDefault = now.minus({ hours: 8 }).startOf('hour').toFormat('yyyy-MM-dd HH:mm');
+    const endDefault = now.startOf('hour').toFormat('yyyy-MM-dd HH:mm');
 
     document.getElementById("start").value = startDefault;
     document.getElementById("end").value = endDefault;
 
     flatpickr("#start,#end", {
         enableTime: true,
-        dateFormat: "Y-m-d H",
+        dateFormat: "Y-m-d H:mm",
         time_24hr: true,
         minuteIncrement: 60
     });
