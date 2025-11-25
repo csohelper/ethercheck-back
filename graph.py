@@ -21,7 +21,7 @@ HOURS_DIR = Path("data/losses/hours")
 _rooms_cache = None
 _cache_time: datetime | None = None
 
-colors_16 = [
+colors = [
     "#e6194b",  # 0°   – ярко-красный
     "#f46d43",  # 22.5° – красно-оранжевый
     "#fdae61",  # 45°  – оранжевый
