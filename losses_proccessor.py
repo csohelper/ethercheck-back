@@ -35,7 +35,7 @@ def parse_timestamp(ts: str) -> datetime:
     return datetime.strptime(ts, "%Y-%m-%d %H:%M")
 
 
-def create_row_from_values(dt: datetime, room: int, packets: int, reached: int, losses: int) -> Dict[str, str]:
+def create_row_from_values(dt: datetime, room: str, packets: int, reached: int, losses: int) -> Dict[str, str]:
     """
     Creates a row dictionary from given values, calculating percentage.
     :param dt: Datetime object.
@@ -54,7 +54,7 @@ def create_row_from_values(dt: datetime, room: int, packets: int, reached: int, 
         "DD": f"{dt.day:02d}",
         "HH": f"{dt.hour:02d}",
         "MM_min": f"{dt.minute:02d}",
-        "ROOM": str(room),
+        "ROOM": room,
         "PACKETS": str(packets),
         "REACHES": str(reached),
         "LOSSES": str(losses),
@@ -132,7 +132,7 @@ def rows_to_sorted_matrix(rows: List[Dict[str, str]]) -> List[List[str]]:
 
     def keyfn(r: Dict[str, str]):
         dt = datetime(int(r["YYYY"]), int(r["MM"]), int(r["DD"]), int(r["HH"]), int(r["MM_min"]))
-        room_sort = int(r["ROOM"]) if r["ROOM"] != "" else -1
+        room_sort = r["ROOM"] if r["ROOM"] != "" else ""
         return dt, room_sort
 
     rows_sorted = sorted(rows, key=keyfn)
@@ -218,7 +218,7 @@ def aggregate_totals_from_rows(rows: List[Dict[str, str]]) -> List[List[str]]:
 
 
 def upsert_per_hour_rows(
-        existing: List[Dict[str, str]], additions: List[Dict[str, str]], room: int
+        existing: List[Dict[str, str]], additions: List[Dict[str, str]], room: str
 ) -> List[Dict[str, str]]:
     """
     Upserts additions into existing rows for a specific room.
@@ -292,7 +292,7 @@ def group_data_by_hour(data: Dict[str, Dict[str, int]]) -> Dict[datetime, List[T
     return by_hour
 
 
-def update_hourly_files(dt_hour: datetime, entries: List[Tuple[datetime, int, int, int]], room: int) -> None:
+def update_hourly_files(dt_hour: datetime, entries: List[Tuple[datetime, int, int, int]], room: str) -> None:
     """
     Updates hourly files for a given hour and entries.
     :param dt_hour: Hour datetime.
@@ -365,7 +365,7 @@ def update_daily_for_day(dt_day: date) -> None:
         raise
 
 
-def process_losses_sync(room: int, file: Path) -> None:
+def process_losses_sync(room: str, file: Path) -> None:
     """
     Synchronous processing of losses file, updating hourly and daily files.
     :param room: Room number.
@@ -386,7 +386,7 @@ def process_losses_sync(room: int, file: Path) -> None:
         print(e)
 
 
-async def process_losses(room: int, file: Path) -> None:
+async def process_losses(room: str, file: Path) -> None:
     """
     Asynchronous wrapper to process losses in a separate thread.
     :param room: Room number.

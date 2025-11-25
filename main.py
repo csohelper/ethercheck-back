@@ -28,7 +28,7 @@ async def process_trace(room: int, file: Path):
     pass
 
 
-async def append_analytics(room: int, file: Path) -> None:
+async def append_analytics(room: str, file: Path) -> None:
     # Целевая папка = имя файла без .zip
     target_dir = file.with_suffix("")
 
@@ -56,8 +56,8 @@ async def append_analytics(room: int, file: Path) -> None:
     shutil.rmtree(target_dir)
 
 
-@app.route('/upload/<int:room>/', methods=['POST'])
-async def upload_data(room: int):
+@app.route('/upload/<room>/', methods=['POST'])
+async def upload_data(room: str):
     file = (await request.files).get('file')
 
     if not file:

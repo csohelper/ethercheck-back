@@ -2,6 +2,7 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime, timedelta
 from quart import Blueprint, render_template, request, jsonify
+import logging
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -56,7 +57,7 @@ def optimize_stepped_data(data: list[dict]) -> list[dict]:
     return optimized
 
 
-async def get_all_rooms() -> list[int]:
+async def get_all_rooms() -> list[str]:
     global _rooms_cache, _cache_time
     now = datetime.now()
     if _rooms_cache is None or (now - _cache_time).seconds > 30:
@@ -66,9 +67,9 @@ async def get_all_rooms() -> list[int]:
                 continue
             try:
                 df = pd.read_csv(p, delimiter=";", usecols=["ROOM"])
-                rooms.update(df["ROOM"].astype(int).dropna().unique())
+                rooms.update(df["ROOM"].astype(str).dropna().unique())
             except Exception as e:
-                print(e)
+                logging.error(e)
                 continue
         _rooms_cache = sorted(rooms)
         _cache_time = now
@@ -101,7 +102,7 @@ async def api_data():
     except Exception as e:
         return jsonify({"error": "Формат: YYYY-MM-DD HH", "message": str(e)}), 400
 
-    selected_rooms = [int(x) for x in rooms_param.split(",") if x.isdigit()]
+    selected_rooms = rooms_param.split(",")
     aggregate = "total" in rooms_param
 
     # Включительно оба конца: от start:00 до end:59
@@ -132,7 +133,7 @@ async def api_data():
                         if current <= row['dt'] <= end_inclusive:
                             losses_dict[row['dt']] = float(row['PERCENTS'])
                 except Exception as e:
-                    print(e)
+                    logging.error(e)
             hour += timedelta(hours=1)
 
         data = [{"x": dt.isoformat(), "y": losses_dict.get(dt, 0.0)} for dt in timeline]
@@ -177,7 +178,7 @@ async def api_data():
                         dt = r['dt']
                         room_data[room][dt] = float(r['PERCENTS'])
                 except Exception as e:
-                    print(e)
+                    logging.error(e)
             hour += timedelta(hours=1)
 
         colors = ["#ff5555", "#50fa7b", "#ffb86c", "#8be9fd", "#ff79c6", "#bd93f9", "#f1fa8c", "#ff6e96"]
