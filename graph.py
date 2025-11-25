@@ -21,16 +21,7 @@ HOURS_DIR = Path("data/losses/hours")
 _rooms_cache = None
 _cache_time: datetime | None = None
 
-colors = [
-    "#ff5555", "#50fa7b", "#ffb86c", "#8be9fd", "#ff79c6", "#bd93f9", "#f1fa8c", "#ff6e96",
-    "#ff9e64", "#ff75a0", "#a8e6cf", "#dcedc1", "#ffd3b6", "#ffaaa5", "#ff8c94", "#ff857f",
-    "#ffcc80", "#ffd180", "#ffe082", "#fff59d", "#d4e157", "#aed581", "#81c784", "#66bb6a",
-    "#80deea", "#4dd0e1", "#29b6f6", "#039be5", "#0288d1", "#0277bd", "#01579b", "#5c6bc0",
-    "#7986cb", "#9fa8da", "#b39ddb", "#ce93d8", "#f48fb1", "#f06292", "#ec407a", "#e91e63",
-    "#d81b60", "#c2185b", "#ad1457", "#880e4f", "#ef9a9a", "#e57373", "#ef5350", "#f44336",
-    "#e53935", "#d32f2f", "#c62828", "#b71c1c", "#ff8a80", "#ff5252", "#ff1744", "#d50000",
-    "#f57f17", "#f9a825", "#fbc02d", "#fdd835", "#ffee58", "#fff176", "#fff59d", "#fff9c4"
-]
+colors = ["#ff5555", "#50fa7b", "#ffb86c", "#8be9fd", "#ff79c6", "#bd93f9", "#f1fa8c", "#ff6e96"]
 
 
 def optimize_stepped_data(data: list[dict]) -> list[dict]:
@@ -170,8 +161,7 @@ async def api_data():
             "data": data,
             "borderColor": color,
             "backgroundColor": color + "50",
-            "fill": True,
-            "stepped": "before"
+            "fill": True
         })
 
     return jsonify({"datasets": datasets})
