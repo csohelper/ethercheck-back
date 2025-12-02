@@ -14,7 +14,7 @@ from quart import Quart, jsonify, send_from_directory, render_template, request
 from quart_schema import QuartSchema, validate_response, validate_request, DataSource, hide
 from quart_schema.pydantic import File
 from werkzeug.utils import secure_filename
-
+from hypercorn.middleware import ProxyFixMiddleware
 from graph import graph_bp, get_all_rooms
 from losses_proccessor import process_losses
 
@@ -119,7 +119,9 @@ async def static_files(filename):
 async def main():
     config = Config()
     config.bind = ["0.0.0.0:8080"]
-    await serve(app, config)
+    fixed_app = ProxyFixMiddleware(app, mode="legacy", trusted_hops=1)  # 'legacy' for X-Forwarded-* headers,
+    # trusted_hops=1 for one proxy (NGINX)
+    await serve(fixed_app, config)
 
 
 if __name__ == '__main__':
