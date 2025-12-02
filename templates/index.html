@@ -222,7 +222,7 @@
 
     // Установка дат по умолчанию
     const now = luxon.DateTime.now();
-    const startDefault = now.minus({ hours: 8 }).toFormat('yyyy-MM-dd HH:mm');
+    const startDefault = now.minus({hours: 8}).toFormat('yyyy-MM-dd HH:mm');
     const endDefault = now.toFormat('yyyy-MM-dd HH:mm');
 
     document.getElementById("start").value = startDefault;
@@ -280,7 +280,7 @@
         // Если выбрано "total" или ничего не выбрано — отправляем пустую строку или специальное значение
         const finalRooms = totalCheckbox.checked || rooms === "" ? "total" : rooms;
 
-        const resp = await fetch(`/api/graph?start=${start}&end=${end}&rooms=${finalRooms}`);
+        const resp = await fetch(`https://${window.location.host}/api/graph?start=${start}&end=${end}&rooms=${finalRooms}`);
         const json = await resp.json();
 
         if (chart) chart.destroy();
