@@ -10,7 +10,7 @@ import aiofiles
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
 from pydantic import BaseModel
-from quart import Quart, jsonify, send_from_directory, render_template
+from quart import Quart, jsonify, send_from_directory, render_template, request
 from quart_schema import QuartSchema, validate_response, validate_request, DataSource, hide
 from quart_schema.pydantic import File
 from werkzeug.utils import secure_filename
@@ -22,6 +22,12 @@ app = Quart(__name__)
 QuartSchema(app)
 app.register_blueprint(graph_bp)
 logging.basicConfig(level=logging.INFO)
+
+
+@app.before_request
+async def fix_scheme():
+    if request.headers.get("X-Forwarded-Proto", "http") == "https":
+        request.scheme = "https"
 
 
 # app.config['QUART_SCHEMA_CONVERT_CASING'] = True
