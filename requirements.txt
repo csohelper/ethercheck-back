@@ -3,3 +3,4 @@ aiofiles
 filelock
 pandas
 quart-schema
+pydantic
