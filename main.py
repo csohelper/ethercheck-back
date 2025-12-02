@@ -78,6 +78,9 @@ class Status:
 @validate_request(Upload, source=DataSource.FORM_MULTIPART)
 @validate_response(Status)
 async def upload_data(room: str, data: Upload):
+    """
+    Отгрузить данные статистики на сервер
+    """
     file = data.file
 
     if not file:

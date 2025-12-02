@@ -108,7 +108,7 @@ class RoomsResponse(BaseModel):
 
 
 # Видимый маршрут с описанием (docstring + @validate_response)
-@graph_bp.route("/api/rooms", methods=["GET"])
+@graph_bp.route("/api/rooms/", methods=["GET"])
 @validate_response(RoomsResponse)
 async def api_rooms():
     """
@@ -117,9 +117,6 @@ async def api_rooms():
     Этот эндпоинт возвращает отсортированный список уникальных идентификаторов комнат,
     извлеченных из CSV-файлов в директории HOURS_DIR.
     Кэширует результат на 30 секунд для оптимизации производительности.
-
-    Returns:
-        RoomsResponse: JSON с массивом строк (комнатами).
     """
     rooms = await get_all_rooms()
     return RoomsResponse(rooms=rooms)
@@ -214,6 +211,9 @@ class ApiFilters(BaseModel):
 @validate_querystring(ApiFilters)
 @validate_response(ApiResponse)
 async def get_graph_points(query_args: ApiFilters):
+    """
+    Возвращает набор точек для построение графика Losses(Time) для каждой комнаты (или среднее по всем)
+    """
     start_str = query_args.start
     end_str = query_args.end
     rooms_param = query_args.rooms or ""
