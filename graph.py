@@ -90,7 +90,7 @@ async def get_all_rooms() -> list[str]:
     return _rooms_cache
 
 
-@graph_bp.route("/", include_in_schema=False)
+@graph_bp.route("/")
 async def index():
     rooms = await get_all_rooms()
     return await render_template("index.html", rooms=rooms)
@@ -296,6 +296,6 @@ async def get_graph_points(query_args: ApiFilters):
     return ApiResponse(datasets=datasets)
 
 
-@graph_bp.route("/static/<path:filename>", include_in_schema=False)
+@graph_bp.route("/static/<path:filename>")
 async def send_static_file(filename):
     return await send_from_directory(graph_bp.static_folder, filename)
