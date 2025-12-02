@@ -6,7 +6,7 @@ from typing import List, Optional, Dict
 
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator
-from quart import Blueprint, jsonify, render_template
+from quart import Blueprint, jsonify, render_template, send_from_directory
 from quart_schema import validate_querystring, validate_response
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -90,15 +90,40 @@ async def get_all_rooms() -> list[str]:
     return _rooms_cache
 
 
-@graph_bp.route("/")
+@graph_bp.route("/", include_in_schema=False)
 async def index():
     rooms = await get_all_rooms()
     return await render_template("index.html", rooms=rooms)
 
 
+class RoomsResponse(BaseModel):
+    rooms: List[str] = Field(
+        ...,
+        title="Rooms",
+        description="Список всех доступных комнат"
+    )
+
+    model_config = {
+        'json_schema_extra': {
+            'example': {
+                'rooms': ["101", "102"]
+            }
+        }
+    }
+
+
 @graph_bp.route("/api/rooms")
+@validate_response(RoomsResponse)
 async def api_rooms():
-    return jsonify(await get_all_rooms())
+    """
+    Возвращает список всех доступных комнат.
+
+    Этот эндпоинт возвращает отсортированный список уникальных идентификаторов комнат,
+    извлеченных из CSV-файлов в директории HOURS_DIR.
+    Кэширует результат на 30 секунд для оптимизации производительности.
+    """
+    rooms = await get_all_rooms()
+    return RoomsResponse(rooms=rooms)
 
 
 class DataPoint(BaseModel):
@@ -269,3 +294,8 @@ async def get_graph_points(query_args: ApiFilters):
         )
 
     return ApiResponse(datasets=datasets)
+
+
+@graph_bp.route("/static/<path:filename>", include_in_schema=False)
+async def send_static_file(filename):
+    return await send_from_directory(graph_bp.static_folder, filename)
