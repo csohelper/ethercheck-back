@@ -17,7 +17,7 @@ services:
       - "443:443"
     volumes:
       - ./data:/app/data
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:rw
       - ./certbot/www:/var/www/certbot:rw
       - ./certbot/conf:/etc/nginx/ssl:ro
     depends_on:
