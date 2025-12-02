@@ -280,7 +280,7 @@
         // Если выбрано "total" или ничего не выбрано — отправляем пустую строку или специальное значение
         const finalRooms = totalCheckbox.checked || rooms === "" ? "total" : rooms;
 
-        const resp = await fetch(`/api/data?start=${start}&end=${end}&rooms=${finalRooms}`);
+        const resp = await fetch(`/api/graph?start=${start}&end=${end}&rooms=${finalRooms}`);
         const json = await resp.json();
 
         if (chart) chart.destroy();
