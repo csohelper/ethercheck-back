@@ -19,7 +19,12 @@ from graph import graph_bp, get_all_rooms
 from losses_proccessor import process_losses
 
 app = Quart(__name__)
-QuartSchema(app)
+QuartSchema(
+    app, openapi_path='/api/openapi.json',
+    redoc_ui_path='/api/redocs',
+    scalar_ui_path='/api/scalar',
+    swagger_ui_path='/api/docs'
+)
 app.register_blueprint(graph_bp)
 logging.basicConfig(level=logging.INFO)
 
