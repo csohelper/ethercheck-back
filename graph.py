@@ -107,7 +107,7 @@ class RoomsResponse(BaseModel):
 
 
 # Видимый маршрут с описанием (docstring + @validate_response)
-@graph_bp.route("/api/rooms/", methods=["GET"])
+@graph_bp.route("/api/rooms", methods=["GET"], strict_slashes=False)
 @validate_response(RoomsResponse)
 async def api_rooms():
     """
@@ -214,7 +214,7 @@ class ApiFilters(BaseModel):
         return ",".join(part.strip() for part in v.split(",") if part.strip())
 
 
-@graph_bp.get("/api/graph/")
+@graph_bp.get("/api/graph", strict_slashes=False)
 @validate_querystring(ApiFilters)
 @validate_response(ApiResponse)
 async def get_graph_points(query_args: ApiFilters):

@@ -71,7 +71,7 @@ class Status:
     status: str
 
 
-@app.route('/api/upload/<room>', methods=['POST'])
+@app.route('/api/upload/<room>', methods=['POST'], strict_slashes=False)
 @validate_request(Upload, source=DataSource.FORM_MULTIPART)
 @validate_response(Status)
 async def upload_data(room: str, data: Upload):
