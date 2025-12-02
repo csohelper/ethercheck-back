@@ -163,9 +163,29 @@ class ApiResponse(BaseModel):
 
 
 class ApiFilters(BaseModel):
-    start: str = Field(..., examples=["2025-11-19 15:00"])
-    end: str = Field(..., examples=["2025-11-19 23:59"])
-    rooms: Optional[Annotated[str, StringConstraints(strip_whitespace=True)]] = Field(None, examples=["101,102"])
+    start: str = Field(
+        ...,
+        description="Начало периода (формат: YYYY-MM-DD HH:MM)",
+        json_schema_extra={"example": "2025-11-19 15:00"}  # вот так теперь!
+    )
+    end: str = Field(
+        ...,
+        description="Конец периода (формат: YYYY-MM-DD HH:MM)",
+        json_schema_extra={"example": "2025-11-19 23:59"}
+    )
+    rooms: Optional[str] = Field(
+        None,
+        description="Список комнат через запятую. Или 'total' для всех по отдельности / 'summary'",
+        json_schema_extra={"example": "101,102"}  # именно так!
+    )
+
+    # Опционально: убираем лишние пробелы
+    # @field_validator("rooms", mode="before")
+    @classmethod
+    def strip_rooms(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return ",".join(part.strip() for part in v.split(",") if part.strip())
 
 
 @graph_bp.get("/api/graph/")
