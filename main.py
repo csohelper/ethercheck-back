@@ -24,15 +24,6 @@ app.register_blueprint(graph_bp)
 logging.basicConfig(level=logging.INFO)
 
 
-@app.before_request
-async def fix_scheme():
-    if request.headers.get("X-Forwarded-Proto", "http") == "https":
-        request.scheme = "https"
-
-
-# app.config['QUART_SCHEMA_CONVERT_CASING'] = True
-
-
 # TODO
 async def process_ping(room: str, file: Path):
     pass
