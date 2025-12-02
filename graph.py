@@ -1,12 +1,11 @@
 import hashlib
 import logging
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Dict, Annotated
+from typing import List, Optional, Dict
 
 import pandas as pd
-from pydantic import BaseModel, Field, constr, StringConstraints, field_validator
+from pydantic import BaseModel, Field, field_validator
 from quart import Blueprint, jsonify, render_template
 from quart_schema import validate_querystring, validate_response
 
@@ -166,7 +165,7 @@ class ApiFilters(BaseModel):
     start: str = Field(
         ...,
         description="Начало периода (формат: YYYY-MM-DD HH:MM)",
-        json_schema_extra={"example": "2025-11-19 15:00"}  # вот так теперь!
+        json_schema_extra={"example": "2025-11-19 15:00"}
     )
     end: str = Field(
         ...,
@@ -176,10 +175,9 @@ class ApiFilters(BaseModel):
     rooms: Optional[str] = Field(
         None,
         description="Список комнат через запятую. Или 'total' для всех по отдельности / 'summary'",
-        json_schema_extra={"example": "101,102"}  # именно так!
+        json_schema_extra={"example": "101,102"}
     )
 
-    # Опционально: убираем лишние пробелы
     @field_validator("rooms", mode="before")
     @classmethod
     def strip_rooms(cls, v: Optional[str]) -> Optional[str]:
@@ -191,10 +189,10 @@ class ApiFilters(BaseModel):
 @graph_bp.get("/api/graph/")
 @validate_querystring(ApiFilters)
 @validate_response(ApiResponse)
-async def get_graph_points(query_args: ApiFilters):  # Изменено: query -> query_args
-    start_str = query_args.start  # Изменено: query -> query_args
-    end_str = query_args.end  # Изменено: query -> query_args
-    rooms_param = query_args.rooms or ""  # Изменено: query -> query_args
+async def get_graph_points(query_args: ApiFilters):
+    start_str = query_args.start
+    end_str = query_args.end
+    rooms_param = query_args.rooms or ""
 
     try:
         start_dt = datetime.strptime(start_str, "%Y-%m-%d %H:%M")
@@ -251,11 +249,14 @@ async def get_graph_points(query_args: ApiFilters):  # Изменено: query -
         hash_val = int(hashlib.sha256(str(room).encode()).hexdigest(), 16)
         color = colors[hash_val % len(colors)]
 
-        datapoints: List[DataPoint] = []
+        datapoints_raw: List[dict] = []
         for t in timeline:
             dt = t.to_pydatetime()
             y = room_data[room].get(dt, 0.0)
-            datapoints.append(DataPoint(x=dt.isoformat(), y=float(y)))
+            datapoints_raw.append({"x": dt.isoformat(), "y": float(y)})
+
+        optimized_datapoints = optimize_stepped_data(datapoints_raw)
+        datapoints = [DataPoint(**dp) for dp in optimized_datapoints]
 
         datasets.append(
             Dataset(
