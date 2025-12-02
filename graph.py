@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Annotated
 
 import pandas as pd
-from pydantic import BaseModel, Field, constr, StringConstraints
+from pydantic import BaseModel, Field, constr, StringConstraints, field_validator
 from quart import Blueprint, jsonify, render_template
 from quart_schema import validate_querystring, validate_response
 
@@ -180,7 +180,7 @@ class ApiFilters(BaseModel):
     )
 
     # Опционально: убираем лишние пробелы
-    # @field_validator("rooms", mode="before")
+    @field_validator("rooms", mode="before")
     @classmethod
     def strip_rooms(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
@@ -191,10 +191,10 @@ class ApiFilters(BaseModel):
 @graph_bp.get("/api/graph/")
 @validate_querystring(ApiFilters)
 @validate_response(ApiResponse)
-async def get_graph_points(query: ApiFilters):
-    start_str = query.start
-    end_str = query.end
-    rooms_param = query.rooms or ""
+async def get_graph_points(query_args: ApiFilters):  # Изменено: query -> query_args
+    start_str = query_args.start  # Изменено: query -> query_args
+    end_str = query_args.end  # Изменено: query -> query_args
+    rooms_param = query_args.rooms or ""  # Изменено: query -> query_args
 
     try:
         start_dt = datetime.strptime(start_str, "%Y-%m-%d %H:%M")
