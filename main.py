@@ -1,27 +1,30 @@
+import asyncio
 import logging
 import os
 import shutil
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-import asyncio
+
 import aiofiles
-from aiohttp.web_request import FileField
-from pydantic import BaseModel
-from quart import Quart, request, jsonify
-from quart_schema import QuartSchema, validate_querystring, validate_response, validate_request, DataSource
-from quart_schema.pydantic import File
-from werkzeug.utils import secure_filename
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
-import zipfile
-from graph import graph_bp
+from pydantic import BaseModel
+from quart import Quart, jsonify, send_from_directory, render_template
+from quart_schema import QuartSchema, validate_response, validate_request, DataSource, hide
+from quart_schema.pydantic import File
+from werkzeug.utils import secure_filename
 
+from graph import graph_bp, get_all_rooms
 from losses_proccessor import process_losses
 
 app = Quart(__name__)
 QuartSchema(app)
 app.register_blueprint(graph_bp)
 logging.basicConfig(level=logging.INFO)
+
+
+# app.config['QUART_SCHEMA_CONVERT_CASING'] = True
 
 
 # TODO
@@ -96,6 +99,21 @@ async def upload_data(room: str, data: Upload):
     await append_analytics(room, join)
 
     return Status(status="success")
+
+
+# Обслуживаем главную страницу
+@app.route("/", methods=["GET"])
+@hide  # теперь точно скроется
+async def index():
+    rooms = await get_all_rooms()
+    return await render_template("index.html", rooms=rooms)
+
+
+# Обслуживаем статику
+@app.route("/static/<path:filename>")
+@hide
+async def static_files(filename):
+    return await send_from_directory("graph/static", filename)
 
 
 async def main():

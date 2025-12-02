@@ -7,16 +7,17 @@ from typing import List, Optional, Dict
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator
 from quart import Blueprint, jsonify, render_template, send_from_directory
-from quart_schema import validate_querystring, validate_response
+from quart_schema import validate_querystring, validate_response, hide
 
 BASE_DIR = Path(__file__).resolve().parent
 
 graph_bp = Blueprint(
     'graph',
     __name__,
-    template_folder=BASE_DIR / "templates",
-    static_folder=BASE_DIR / "static"
+    # template_folder=BASE_DIR / "templates",
+    # static_folder=BASE_DIR / "static"
 )
+
 
 HOURS_DIR = Path("data/losses/hours")
 
@@ -58,7 +59,7 @@ def optimize_stepped_data(data: list[dict]) -> list[dict]:
             j += 1
 
         # Если серия длиннее 1 точки, добавляем последнюю точку серии
-        if j - i > 1:  # <- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: проверяем длину серии
+        if j - i > 1:
             optimized.append(data[j - 1])
 
         # Переходим к следующей серии
@@ -90,12 +91,6 @@ async def get_all_rooms() -> list[str]:
     return _rooms_cache
 
 
-@graph_bp.route("/")
-async def index():
-    rooms = await get_all_rooms()
-    return await render_template("index.html", rooms=rooms)
-
-
 class RoomsResponse(BaseModel):
     rooms: List[str] = Field(
         ...,
@@ -106,13 +101,14 @@ class RoomsResponse(BaseModel):
     model_config = {
         'json_schema_extra': {
             'example': {
-                'rooms': ["101", "102"]
+                'rooms': ["101", "102", "536"]
             }
         }
     }
 
 
-@graph_bp.route("/api/rooms")
+# Видимый маршрут с описанием (docstring + @validate_response)
+@graph_bp.route("/api/rooms", methods=["GET"])
 @validate_response(RoomsResponse)
 async def api_rooms():
     """
@@ -121,6 +117,9 @@ async def api_rooms():
     Этот эндпоинт возвращает отсортированный список уникальных идентификаторов комнат,
     извлеченных из CSV-файлов в директории HOURS_DIR.
     Кэширует результат на 30 секунд для оптимизации производительности.
+
+    Returns:
+        RoomsResponse: JSON с массивом строк (комнатами).
     """
     rooms = await get_all_rooms()
     return RoomsResponse(rooms=rooms)
@@ -294,8 +293,3 @@ async def get_graph_points(query_args: ApiFilters):
         )
 
     return ApiResponse(datasets=datasets)
-
-
-@graph_bp.route("/static/<path:filename>")
-async def send_static_file(filename):
-    return await send_from_directory(graph_bp.static_folder, filename)
