@@ -1,10 +1,15 @@
 import logging
 import os
 import shutil
+from dataclasses import dataclass
 from pathlib import Path
 import asyncio
 import aiofiles
+from aiohttp.web_request import FileField
+from pydantic import BaseModel
 from quart import Quart, request, jsonify
+from quart_schema import QuartSchema, validate_querystring, validate_response, validate_request, DataSource
+from quart_schema.pydantic import File
 from werkzeug.utils import secure_filename
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
@@ -14,17 +19,18 @@ from graph import graph_bp
 from losses_proccessor import process_losses
 
 app = Quart(__name__)
+QuartSchema(app)
 app.register_blueprint(graph_bp)
 logging.basicConfig(level=logging.INFO)
 
 
 # TODO
-async def process_ping(room: int, file: Path):
+async def process_ping(room: str, file: Path):
     pass
 
 
 # TODO
-async def process_trace(room: int, file: Path):
+async def process_trace(room: str, file: Path):
     pass
 
 
@@ -56,9 +62,20 @@ async def append_analytics(room: str, file: Path) -> None:
     shutil.rmtree(target_dir)
 
 
-@app.route('/upload/<room>/', methods=['POST'])
-async def upload_data(room: str):
-    file = (await request.files).get('file')
+class Upload(BaseModel):
+    file: File
+
+
+@dataclass
+class Status:
+    status: str
+
+
+@app.route('/api/upload/<room>/', methods=['POST'])
+@validate_request(Upload, source=DataSource.FORM_MULTIPART)
+@validate_response(Status)
+async def upload_data(room: str, data: Upload):
+    file = data.file
 
     if not file:
         return jsonify({"error": "No file part"}), 400
@@ -78,7 +95,7 @@ async def upload_data(room: str):
 
     await append_analytics(room, join)
 
-    return jsonify({"status": "success"}), 200
+    return Status(status="success")
 
 
 async def main():

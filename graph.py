@@ -1,10 +1,14 @@
 import hashlib
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import List, Optional, Dict, Annotated
 
 import pandas as pd
-from quart import Blueprint, render_template, request, jsonify
+from pydantic import BaseModel, Field, constr, StringConstraints
+from quart import Blueprint, jsonify, render_template
+from quart_schema import validate_querystring, validate_response
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -98,75 +102,149 @@ async def api_rooms():
     return jsonify(await get_all_rooms())
 
 
-@graph_bp.route("/api/data")
-async def api_data():
-    start_str = request.args.get("start")  # "2025-11-19 15"
-    end_str = request.args.get("end")  # "2025-11-19 23"
-    rooms_param = request.args.get("rooms", "")
+class DataPoint(BaseModel):
+    x: str = Field(..., title="X")
+    y: float = Field(..., title="Y")
 
-    if not start_str or not end_str:
-        return jsonify({"error": "start и end обязательны"}), 400
+    model_config = {
+        'json_schema_extra': {
+            'example': {
+                'x': '2025-01-01T10:00:00',
+                'y': 12.5
+            }
+        }
+    }
+
+
+class Dataset(BaseModel):
+    label: str = Field(..., title="Label")
+    data: List[DataPoint] = Field(..., title="Data")
+    borderColor: str = Field(..., title="BorderColor")
+    backgroundColor: str = Field(..., title="BackgroundColor")
+    fill: bool = Field(..., title="Fill")
+
+    model_config = {
+        'json_schema_extra': {
+            'example': {
+                'label': '123',
+                'data': [
+                    {'x': '2025-01-01T10:00:00', 'y': 12.5},
+                    {'x': '2025-01-01T10:01:00', 'y': 14.2},
+                ],
+                'borderColor': '#ff0000',
+                'backgroundColor': '#ff000050',
+                'fill': True
+            }
+        }
+    }
+
+
+class ApiResponse(BaseModel):
+    datasets: List[Dataset] = Field(..., title="Datasets")
+
+    model_config = {
+        'json_schema_extra': {
+            'example': {
+                'datasets': [
+                    {
+                        'label': '123',
+                        'data': [
+                            {'x': '2025-01-01T10:00:00', 'y': 12.5},
+                            {'x': '2025-01-01T10:01:00', 'y': 14.2},
+                        ],
+                        'borderColor': '#ff0000',
+                        'backgroundColor': '#ff000050',
+                        'fill': True
+                    }
+                ]
+            }
+        }
+    }
+
+
+class ApiFilters(BaseModel):
+    start: str = Field(..., examples=["2025-11-19 15:00"])
+    end: str = Field(..., examples=["2025-11-19 23:59"])
+    rooms: Optional[Annotated[str, StringConstraints(strip_whitespace=True)]] = Field(None, examples=["101,102"])
+
+
+@graph_bp.get("/api/graph/")
+@validate_querystring(ApiFilters)
+@validate_response(ApiResponse)
+async def get_graph_points(query: ApiFilters):
+    start_str = query.start
+    end_str = query.end
+    rooms_param = query.rooms or ""
 
     try:
         start_dt = datetime.strptime(start_str, "%Y-%m-%d %H:%M")
         end_dt = datetime.strptime(end_str, "%Y-%m-%d %H:%M")
     except Exception as e:
-        return jsonify({"error": "Формат: YYYY-MM-DD HH-mm", "message": str(e)}), 400
+        return jsonify({"error": "Формат: YYYY-MM-DD HH:MM", "message": str(e)}), 400
 
-    selected_rooms = rooms_param.split(",")
-    if "total" in rooms_param:
+    if end_dt < start_dt:
+        return jsonify({"error": "end < start"}), 400
+
+    # Список комнат
+    selected_rooms = [r.strip() for r in rooms_param.split(",") if r.strip()]
+    if "total" in selected_rooms:
         selected_rooms = await get_all_rooms()
 
-    # Включительно оба конца: от start:00 до end:59
+    # Основная шкала времени
+    timeline = pd.date_range(start_dt, end_dt, freq="T")
 
-    timeline = pd.date_range(start_dt, end_dt, freq="min")
+    room_data: Dict[str, Dict[datetime, float]] = {room: {} for room in selected_rooms}
 
-    # По комнатам
-    room_data = {room: {} for room in selected_rooms}
     hour = start_dt.replace(minute=0)
     while hour <= end_dt:
         key = hour.strftime("%Y-%m-%d_%H")
         path = HOURS_DIR / f"losses_{key}.csv"
+
         if path.exists():
             try:
                 df = pd.read_csv(path, delimiter=";", header=0)
-                df.columns = ["YYYY", "MM", "DD", "HH", "MM_min", "ROOM", "PACKETS", "REACHES", "LOSSES",
-                              "PERCENTS"]
-                df = df[df['ROOM'].isin(selected_rooms)]
-                df['dt'] = pd.to_datetime(
-                    df['YYYY'].astype(str) + '-' +
-                    df['MM'].astype(str).str.zfill(2) + '-' +
-                    df['DD'].astype(str).str.zfill(2) + ' ' +
-                    df['HH'].astype(str).str.zfill(2) + ':' +
-                    df['MM_min'].astype(str).str.zfill(2)
+                df.columns = ["YYYY", "MM", "DD", "HH", "MM_min", "ROOM", "PACKETS", "REACHES", "LOSSES", "PERCENTS"]
+                df = df[df["ROOM"].isin(selected_rooms)]
+
+                df["dt"] = pd.to_datetime(
+                    df["YYYY"].astype(str) + "-" +
+                    df["MM"].astype(str).str.zfill(2) + "-" +
+                    df["DD"].astype(str).str.zfill(2) + " " +
+                    df["HH"].astype(str).str.zfill(2) + ":" +
+                    df["MM_min"].astype(str).str.zfill(2)
                 )
-                df = df[(df['dt'] >= start_dt) & (df['dt'] <= end_dt)]
+
+                df = df[(df["dt"] >= start_dt) & (df["dt"] <= end_dt)]
+
                 for _, r in df.iterrows():
-                    room = r['ROOM']
-                    dt = r['dt']
-                    room_data[room][dt] = float(r['PERCENTS'])
+                    room_data[r["ROOM"]][r["dt"].to_pydatetime()] = float(r["PERCENTS"])
+
             except Exception as e:
                 logging.error(e)
+
         hour += timedelta(hours=1)
 
-    datasets = []
+    # Формируем response согласно схеме ApiResponse
+    datasets: List[Dataset] = []
+
     for room in sorted(selected_rooms):
-        room_str = str(room)
-        hash_object = hashlib.sha256(room_str.encode())
-        hash_int = int(hash_object.hexdigest(), 16)
+        hash_val = int(hashlib.sha256(str(room).encode()).hexdigest(), 16)
+        color = colors[hash_val % len(colors)]
 
-        color_index = hash_int % len(colors)
-        color = colors[color_index]
+        datapoints: List[DataPoint] = []
+        for t in timeline:
+            dt = t.to_pydatetime()
+            y = room_data[room].get(dt, 0.0)
+            datapoints.append(DataPoint(x=dt.isoformat(), y=float(y)))
 
-        data = [{"x": dt.isoformat(), "y": room_data[room].get(dt, 0.0)} for dt in timeline]
-        data = optimize_stepped_data(data)
+        datasets.append(
+            Dataset(
+                label=str(room),
+                data=datapoints,
+                borderColor=color,
+                backgroundColor=color + "50",
+                fill=True
+            )
+        )
 
-        datasets.append({
-            "label": str(room),
-            "data": data,
-            "borderColor": color,
-            "backgroundColor": color + "50",
-            "fill": True
-        })
-
-    return jsonify({"datasets": datasets})
+    return ApiResponse(datasets=datasets)

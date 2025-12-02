@@ -2,3 +2,4 @@ quart
 aiofiles
 filelock
 pandas
+quart-schema
