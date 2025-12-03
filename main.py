@@ -108,7 +108,7 @@ async def upload_data(room: str, data: Upload):
     return Status(status="success")
 
 
-@app.get("/health")
+@app.get("/api/health")
 @validate_response(Status)  # если хочешь через pydantic
 async def health_check():
     return {
