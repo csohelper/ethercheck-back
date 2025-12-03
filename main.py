@@ -1,10 +1,10 @@
 import asyncio
+import datetime
 import logging
 import os
 import shutil
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 import aiofiles
@@ -114,7 +114,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "ethercheck-backend",
-        "time": datetime.utcnow().isoformat() + "Z",
+        "time": datetime.datetime.now(datetime.UTC).isoformat() + "Z",
         "uptime": "ok"  # можно добавить реальное время работы, если захочешь
     }, 200
 
