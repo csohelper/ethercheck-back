@@ -9,13 +9,14 @@ from pathlib import Path
 import aiofiles
 from hypercorn.asyncio import serve
 from hypercorn.config import Config
+from hypercorn.middleware import ProxyFixMiddleware
 from pydantic import BaseModel
-from quart import Quart, jsonify, send_from_directory, render_template, request
-from quart_schema import QuartSchema, validate_response, validate_request, DataSource, hide
+from quart import Quart, jsonify
+from quart_schema import QuartSchema, validate_response, validate_request, DataSource
 from quart_schema.pydantic import File
 from werkzeug.utils import secure_filename
-from hypercorn.middleware import ProxyFixMiddleware
-from graph import graph_bp, get_all_rooms
+
+from graph import graph_bp
 from losses_proccessor import process_losses
 
 app = Quart(__name__)
@@ -104,21 +105,6 @@ async def upload_data(room: str, data: Upload):
     await append_analytics(room, join)
 
     return Status(status="success")
-
-
-# Обслуживаем главную страницу
-@app.route("/", methods=["GET"])
-@hide  # теперь точно скроется
-async def index():
-    rooms = await get_all_rooms()
-    return await render_template("index.html", rooms=rooms)
-
-
-# Обслуживаем статику
-@app.route("/static/<path:filename>")
-@hide
-async def static_files(filename):
-    return await send_from_directory("graph/static", filename)
 
 
 async def main():
