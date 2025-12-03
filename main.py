@@ -4,6 +4,7 @@ import os
 import shutil
 import zipfile
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import aiofiles
@@ -105,6 +106,17 @@ async def upload_data(room: str, data: Upload):
     await append_analytics(room, join)
 
     return Status(status="success")
+
+
+@app.get("/health")
+@validate_response(Status)  # если хочешь через pydantic
+async def health_check():
+    return {
+        "status": "healthy",
+        "service": "ethercheck-backend",
+        "time": datetime.utcnow().isoformat() + "Z",
+        "uptime": "ok"  # можно добавить реальное время работы, если захочешь
+    }, 200
 
 
 async def main():
