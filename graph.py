@@ -74,8 +74,6 @@ async def get_all_rooms() -> list[str]:
     if _rooms_cache is None or (now - _cache_time).seconds > 30:
         rooms = set()
         for p in HOURS_DIR.glob("losses_*.csv"):
-            if p.name.endswith("_total.csv"):
-                continue
             try:
                 df = pd.read_csv(p, delimiter=";", usecols=["ROOM"])
                 rooms.update(df["ROOM"].astype(str).dropna().unique())

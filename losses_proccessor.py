@@ -4,26 +4,17 @@ import json
 import logging
 import os
 import tempfile
-from datetime import datetime, date
+from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Tuple, TypedDict
+from typing import List, Dict, Tuple
 import filelock
 from filelock import FileLock
 
 DATA_DIR = Path("data") / "losses"
 HOURS_DIR = DATA_DIR / "hours"
-DAILY_DIR = DATA_DIR / "daily"
 HOURS_DIR.mkdir(parents=True, exist_ok=True)
-DAILY_DIR.mkdir(parents=True, exist_ok=True)
 
 CSV_FIELDS = ["YYYY", "MM", "DD", "HH", "MM_min", "ROOM", "PACKETS", "REACHES", "LOSSES", "PERCENTS"]
-
-
-class AggVal(TypedDict):
-    packets: int
-    reaches: int
-    losses: int
-    dt: datetime
 
 
 def parse_timestamp(ts: str) -> datetime:
@@ -92,12 +83,11 @@ def read_csv_rows(path: Path) -> List[Dict[str, str]]:
     return rows
 
 
-def write_csv_rows_atomic(path: Path, rows: List[List[str]], is_total: bool) -> None:
+def write_csv_rows_atomic(path: Path, rows: List[List[str]]) -> None:
     """
     Writes rows to a CSV file atomically using a temporary file.
     :param path: Path to write the CSV.
     :param rows: List of lists representing rows.
-    :param is_total: If True, uses total header without ROOM.
     :return: None
     """
     dirpath = path.parent
@@ -108,10 +98,7 @@ def write_csv_rows_atomic(path: Path, rows: List[List[str]], is_total: bool) -> 
     try:
         with tmp_path.open("w", newline="") as fh:
             writer = csv.writer(fh, delimiter=";")
-            if is_total:
-                writer.writerow(["YYYY", "MM", "DD", "HH", "MM", "PACKETS", "REACHES", "LOSSES", "PERCENTS"])
-            else:
-                writer.writerow(["YYYY", "MM", "DD", "HH", "MM", "ROOM", "PACKETS", "REACHES", "LOSSES", "PERCENTS"])
+            writer.writerow(CSV_FIELDS)
             for r in rows:
                 writer.writerow(r)
         os.replace(str(tmp_path), str(path))
@@ -152,69 +139,16 @@ def get_hour_key(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d_%H")
 
 
-def get_day_key(dt_day: date) -> str:
-    """
-    Generates day key from date.
-    :param dt_day: Date object.
-    :return: Day key string "YYYY-MM-DD".
-    """
-    return dt_day.strftime("%Y-%m-%d")
-
-
-def get_hour_file_paths(dt_hour: datetime) -> Tuple[Path, Path, Path]:
+def get_hour_file_paths(dt_hour: datetime) -> Tuple[Path, Path]:
     """
     Returns paths for hour files and lock.
     :param dt_hour: Datetime for the hour.
-    :return: Tuple (per_hour_path, total_path, lock_path).
+    :return: Tuple (per_hour_path, lock_path).
     """
     key = get_hour_key(dt_hour)
     per_hour = HOURS_DIR / f"losses_{key}.csv"
-    total = HOURS_DIR / f"losses_{key}_total.csv"
     lock = HOURS_DIR / f"losses_{key}.lock"
-    return per_hour, total, lock
-
-
-def get_day_file_paths(dt_day: date) -> Tuple[Path, Path, Path]:
-    """
-    Returns paths for day files and lock.
-    :param dt_day: Date for the day.
-    :return: Tuple (per_day_path, total_path, lock_path).
-    """
-    key = get_day_key(dt_day)
-    per_day = DAILY_DIR / f"losses_{key}.csv"
-    total = DAILY_DIR / f"losses_{key}_total.csv"
-    lock = DAILY_DIR / f"losses_{key}.lock"
-    return per_day, total, lock
-
-
-def aggregate_totals_from_rows(rows: List[Dict[str, str]]) -> List[List[str]]:
-    """
-    Aggregates totals from rows, grouping by timestamp.
-    :param rows: List of row dictionaries.
-    :return: List of aggregated total rows.
-    """
-    agg: Dict[str, AggVal] = {}
-    for r in rows:
-        ts = f"{r['YYYY']}-{r['MM']}-{r['DD']} {r['HH']}:{r['MM_min']}"
-        packets = int(r["PACKETS"])
-        reaches = int(r["REACHES"])
-        losses = int(r["LOSSES"])
-        if ts not in agg:
-            agg[ts] = AggVal(packets=0, reaches=0, losses=0, dt=parse_timestamp(ts))
-        agg[ts]["packets"] += packets
-        agg[ts]["reaches"] += reaches
-        agg[ts]["losses"] += losses
-    items = sorted(agg.items(), key=lambda kv: kv[1]["dt"])
-    out = []
-    for ts, vals in items:
-        dt = vals["dt"]
-        pk = vals["packets"]
-        rc = vals["reaches"]
-        lo = vals["losses"]
-        pct = (lo / pk * 100.0) if pk else 0.0
-        out.append([f"{dt.year:04d}", f"{dt.month:02d}", f"{dt.day:02d}", f"{dt.hour:02d}",
-                    f"{dt.minute:02d}", str(pk), str(rc), str(lo), f"{pct:.3f}"])
-    return out
+    return per_hour, lock
 
 
 def upsert_per_hour_rows(
@@ -300,7 +234,7 @@ def update_hourly_files(dt_hour: datetime, entries: List[Tuple[datetime, int, in
     :param room: Room number.
     :return: None
     """
-    per_hour_path, total_path, lock_path = get_hour_file_paths(dt_hour)
+    per_hour_path, lock_path = get_hour_file_paths(dt_hour)
     lock = FileLock(str(lock_path), timeout=10)
     logging.info(f"Acquiring lock for {lock_path} (hour: {dt_hour})")
     try:
@@ -311,50 +245,7 @@ def update_hourly_files(dt_hour: datetime, entries: List[Tuple[datetime, int, in
                          entries]
             merged = upsert_per_hour_rows(existing_rows, additions, room)
             matrix = rows_to_sorted_matrix(merged)
-            write_csv_rows_atomic(per_hour_path, matrix, is_total=False)
-            totals_matrix = aggregate_totals_from_rows(merged)
-            write_csv_rows_atomic(total_path, totals_matrix, is_total=True)
-        logging.info(f"Released lock for {lock_path}")
-        try:
-            lock_path.unlink()
-        except Exception as e:
-            print(e)
-    except filelock.Timeout:
-        logging.error(f"Timeout acquiring lock for {lock_path}")
-        raise
-
-
-def collect_touched_days(by_hour: Dict[datetime, List[Tuple[datetime, int, int, int]]]) -> set[date]:
-    """
-    Collects unique days from hourly keys.
-    :param by_hour: Dictionary of hours to entries.
-    :return: Set of touched dates.
-    """
-    return set(dt_hour.date() for dt_hour in by_hour)
-
-
-def update_daily_for_day(dt_day: date) -> None:
-    """
-    Updates daily files by aggregating all hourly data for the day.
-    :param dt_day: Date for the day.
-    :return: None
-    """
-    per_day_path, total_path, lock_path = get_day_file_paths(dt_day)
-    lock = FileLock(str(lock_path), timeout=10)
-    logging.info(f"Acquiring lock for {lock_path} (day: {dt_day})")
-    try:
-        with lock:
-            logging.info(f"Acquired lock for {lock_path}")
-            all_rows = []
-            for hh in range(24):
-                dt_hour = datetime(dt_day.year, dt_day.month, dt_day.day, hh, 0, 0)
-                per_hour_path, _, _ = get_hour_file_paths(dt_hour)
-                if per_hour_path.exists():
-                    all_rows.extend(read_csv_rows(per_hour_path))
-            matrix = rows_to_sorted_matrix(all_rows)
-            write_csv_rows_atomic(per_day_path, matrix, is_total=False)
-            totals_matrix = aggregate_totals_from_rows(all_rows)
-            write_csv_rows_atomic(total_path, totals_matrix, is_total=True)
+            write_csv_rows_atomic(per_hour_path, matrix)
         logging.info(f"Released lock for {lock_path}")
         try:
             lock_path.unlink()
@@ -377,9 +268,6 @@ def process_losses_sync(room: str, file: Path) -> None:
     by_hour = group_data_by_hour(data)
     for dt_hour, entries in by_hour.items():
         update_hourly_files(dt_hour, entries, room)
-    touched_days = collect_touched_days(by_hour)
-    for dt_day in touched_days:
-        update_daily_for_day(dt_day)
     try:
         file.unlink()
     except Exception as e:
