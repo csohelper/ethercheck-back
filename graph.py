@@ -204,10 +204,23 @@ class ApiFilters(BaseModel):
                     "`summary` — одна линия с общим % потерь по всем комнатам",
         json_schema_extra={"example": "101,102"}
     )
+    excluded_rooms: Optional[str] = Field(
+        ['ULK905v4'],
+        description="Список исключенных комнат через запятую. "
+                    "Эти комнаты не будут обрабатываться при режимах 'total' и 'summary'.",
+        json_schema_extra={"example": "103,104"}
+    )
 
     @field_validator("rooms", mode="before")
     @classmethod
     def strip_rooms(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return ",".join(part.strip() for part in v.split(",") if part.strip())
+
+    @field_validator("excluded_rooms", mode="before")
+    @classmethod
+    def strip_excluded_rooms(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
         return ",".join(part.strip() for part in v.split(",") if part.strip())
@@ -227,6 +240,7 @@ async def get_graph_points(query_args: ApiFilters):
     start_str = query_args.start
     end_str = query_args.end
     rooms_param = query_args.rooms or ""
+    excluded_param = query_args.excluded_rooms or ""
 
     # 1. Парсим даты
     try:
@@ -234,33 +248,38 @@ async def get_graph_points(query_args: ApiFilters):
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    # 2. Определяем, какие комнаты нужны
+    # 2. Определяем исключенные комнаты
+    excluded = set(r.strip() for r in excluded_param.split(",") if r.strip())
+
+    # 3. Определяем, какие комнаты нужны
     selected = [r.strip() for r in rooms_param.split(",") if r.strip()]
 
     if "summary" in selected:
         # Режим summary — игнорируем остальные значения
-        df = _load_hourly_data_for_period(start_dt, end_dt)  # все комнаты
+        df = _load_hourly_data_for_period(start_dt, end_dt, exclude_rooms=excluded)  # все комнаты кроме исключенных
         timeline = pd.date_range(start_dt, end_dt, freq="T")
         dataset = _build_summary_dataset(df, timeline)
         return ApiResponse(datasets=[dataset])
 
-    # Режим total — все комнаты по отдельности
+    # Режим total — все комнаты по отдельности кроме исключенных
     if "total" in selected:
-        selected = await get_all_rooms()
+        all_rooms = await get_all_rooms()
+        selected = [room for room in all_rooms if room not in excluded]
 
     room_set = set(selected) if selected else None
 
-    # 3. Загружаем данные
-    df = _load_hourly_data_for_period(start_dt, end_dt, room_filter=room_set)
+    # 4. Загружаем данные
+    df = _load_hourly_data_for_period(start_dt, end_dt, room_filter=room_set,
+                                      exclude_rooms=excluded if "summary" in selected else None)
 
     if df.empty:
         # Нет данных — возвращаем пустые графики (чтобы фронт не падал)
         return ApiResponse(datasets=[])
 
-    # 4. Формируем временную шкалу
+    # 5. Формируем временную шкалу
     timeline = pd.date_range(start_dt, end_dt, freq="T")
 
-    # 5. Строим ответ
+    # 6. Строим ответ
     if "total" in (rooms_param or "") or selected:
         datasets = _build_room_datasets(df, timeline, list(room_set or []))
     else:
@@ -289,10 +308,12 @@ def _load_hourly_data_for_period(
         start_dt: datetime,
         end_dt: datetime,
         room_filter: set[str] | None = None,
+        exclude_rooms: set[str] | None = None,
 ) -> pd.DataFrame:
     """
     Загружает все hourly CSV за указанный период и возвращает один большой DataFrame.
     room_filter = None → все комнаты.
+    exclude_rooms — комнаты для исключения (применяется после room_filter).
     """
     frames: List[pd.DataFrame] = []
 
@@ -325,10 +346,16 @@ def _load_hourly_data_for_period(
                 df["MM_min"].astype(str).str.zfill(2)
             )
 
-            # Фильтруем по времени и по комнатам (если нужно)
+            # Фильтруем по времени
             df = df[(df["dt"] >= start_dt) & (df["dt"] <= end_dt)]
+
+            # Фильтруем по комнатам (если нужно)
             if room_filter:
                 df = df[df["ROOM"].astype(str).isin(room_filter)]
+
+            # Исключаем комнаты (если указано)
+            if exclude_rooms:
+                df = df[~df["ROOM"].astype(str).isin(exclude_rooms)]
 
             if not df.empty:
                 frames.append(df)
@@ -400,7 +427,7 @@ def _build_summary_dataset(
     optimized = optimize_stepped_data(raw_points)
 
     return Dataset(
-        label="Summary (all rooms)",
+        label="Суммарные потери",
         data=[DataPoint(**p) for p in optimized],
         borderColor="#ff6b6b",
         backgroundColor="#ff6b6b50",
