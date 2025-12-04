@@ -1,4 +1,3 @@
-import hashlib
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -6,16 +5,14 @@ from typing import List, Optional, Dict
 
 import pandas as pd
 from pydantic import BaseModel, Field, field_validator
-from quart import Blueprint, jsonify, render_template, send_from_directory
-from quart_schema import validate_querystring, validate_response, hide
+from quart import Blueprint, jsonify
+from quart_schema import validate_querystring, validate_response
 
 BASE_DIR = Path(__file__).resolve().parent
 
 graph_bp = Blueprint(
     'graph',
-    __name__,
-    # template_folder=BASE_DIR / "templates",
-    # static_folder=BASE_DIR / "static"
+    __name__
 )
 
 HOURS_DIR = Path("data/losses/hours")
@@ -202,7 +199,9 @@ class ApiFilters(BaseModel):
     )
     rooms: Optional[str] = Field(
         None,
-        description="Список комнат через запятую. Или 'total' для всех по отдельности / 'summary'",
+        description="Список комнат через запятую. "
+                    "`total` — все комнаты отдельными линиями, "
+                    "`summary` — одна линия с общим % потерь по всем комнатам",
         json_schema_extra={"example": "101,102"}
     )
 
@@ -219,84 +218,191 @@ class ApiFilters(BaseModel):
 @validate_response(ApiResponse)
 async def get_graph_points(query_args: ApiFilters):
     """
-    Возвращает набор точек для построение графика Losses(Time) для каждой комнаты (или среднее по всем)
+    Возвращает данные для графика потерь по времени.
+    rooms:
+      - пусто или конкретные номера → только эти комнаты
+      - "total"   → все комнаты отдельными линиями
+      - "summary" → одна линия: общий % потерь по всем комнатам
     """
     start_str = query_args.start
     end_str = query_args.end
     rooms_param = query_args.rooms or ""
 
+    # 1. Парсим даты
+    try:
+        start_dt, end_dt = _parse_datetime_range(start_str, end_str)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    # 2. Определяем, какие комнаты нужны
+    selected = [r.strip() for r in rooms_param.split(",") if r.strip()]
+
+    if "summary" in selected:
+        # Режим summary — игнорируем остальные значения
+        df = _load_hourly_data_for_period(start_dt, end_dt)  # все комнаты
+        timeline = pd.date_range(start_dt, end_dt, freq="T")
+        dataset = _build_summary_dataset(df, timeline)
+        return ApiResponse(datasets=[dataset])
+
+    # Режим total — все комнаты по отдельности
+    if "total" in selected:
+        selected = await get_all_rooms()
+
+    room_set = set(selected) if selected else None
+
+    # 3. Загружаем данные
+    df = _load_hourly_data_for_period(start_dt, end_dt, room_filter=room_set)
+
+    if df.empty:
+        # Нет данных — возвращаем пустые графики (чтобы фронт не падал)
+        return ApiResponse(datasets=[])
+
+    # 4. Формируем временную шкалу
+    timeline = pd.date_range(start_dt, end_dt, freq="T")
+
+    # 5. Строим ответ
+    if "total" in (rooms_param or "") or selected:
+        datasets = _build_room_datasets(df, timeline, list(room_set or []))
+    else:
+        # Запрос без rooms → по умолчанию summary (или можно оставить пустым)
+        dataset = _build_summary_dataset(df, timeline)
+        datasets = [dataset]
+
+    return ApiResponse(datasets=datasets)
+
+
+def _parse_datetime_range(start_str: str, end_str: str):
+    """Парсит строки дат и возвращает datetime объекты. Ошибки → 400."""
     try:
         start_dt = datetime.strptime(start_str, "%Y-%m-%d %H:%M")
         end_dt = datetime.strptime(end_str, "%Y-%m-%d %H:%M")
-    except Exception as e:
-        return jsonify({"error": "Формат: YYYY-MM-DD HH:MM", "message": str(e)}), 400
+    except ValueError as exc:
+        raise ValueError("Формат даты: YYYY-MM-DD HH:MM") from exc
 
     if end_dt < start_dt:
-        return jsonify({"error": "end < start"}), 400
+        raise ValueError("end не может быть раньше start")
 
-    # Список комнат
-    selected_rooms = [r.strip() for r in rooms_param.split(",") if r.strip()]
-    if "total" in selected_rooms:
-        selected_rooms = await get_all_rooms()
+    return start_dt, end_dt
 
-    # Основная шкала времени
-    timeline = pd.date_range(start_dt, end_dt, freq="T")
 
-    room_data: Dict[str, Dict[datetime, float]] = {room: {} for room in selected_rooms}
+def _load_hourly_data_for_period(
+        start_dt: datetime,
+        end_dt: datetime,
+        room_filter: set[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Загружает все hourly CSV за указанный период и возвращает один большой DataFrame.
+    room_filter = None → все комнаты.
+    """
+    frames: List[pd.DataFrame] = []
 
-    hour = start_dt.replace(minute=0)
+    hour = start_dt.replace(minute=0, second=0, microsecond=0)
     while hour <= end_dt:
-        key = hour.strftime("%Y-%m-%d_%H")
-        path = HOURS_DIR / f"losses_{key}.csv"
+        csv_path = HOURS_DIR / f"losses_{hour.strftime('%Y-%m-%d_%H')}.csv"
+        if not csv_path.exists():
+            hour += timedelta(hours=1)
+            continue
 
-        if path.exists():
-            try:
-                df = pd.read_csv(path, delimiter=";", header=0)
-                df.columns = ["YYYY", "MM", "DD", "HH", "MM_min", "ROOM", "PACKETS", "REACHES", "LOSSES", "PERCENTS"]
-                df = df[df["ROOM"].isin(selected_rooms)]
+        try:
+            df = pd.read_csv(csv_path, delimiter=";", header=0)
+            df.columns = ["YYYY", "MM", "DD", "HH", "MM_min", "ROOM",
+                          "PACKETS", "REACHES", "LOSSES", "PERCENTS"]
 
-                df["dt"] = pd.to_datetime(
-                    df["YYYY"].astype(str) + "-" +
-                    df["MM"].astype(str).str.zfill(2) + "-" +
-                    df["DD"].astype(str).str.zfill(2) + " " +
-                    df["HH"].astype(str).str.zfill(2) + ":" +
-                    df["MM_min"].astype(str).str.zfill(2)
-                )
+            # Безопасное приведение к целым числам (NaN → 0)
+            df["PACKETS"] = pd.to_numeric(df["PACKETS"], errors="coerce")
+            df["PACKETS"] = df["PACKETS"].fillna(0).astype("Int64")
+            df["LOSSES"] = pd.to_numeric(df["LOSSES"], errors="coerce")
+            df["LOSSES"] = df["LOSSES"].fillna(0).astype("Int64")
+            df["PERCENTS"] = pd.to_numeric(df["PERCENTS"], errors="coerce")
+            df["PERCENTS"] = df["PERCENTS"].fillna(0.0)
 
-                df = df[(df["dt"] >= start_dt) & (df["dt"] <= end_dt)]
+            # Собираем datetime
+            df["dt"] = pd.to_datetime(
+                df["YYYY"].astype(str) + "-" +
+                df["MM"].astype(str).str.zfill(2) + "-" +
+                df["DD"].astype(str).str.zfill(2) + " " +
+                df["HH"].astype(str).str.zfill(2) + ":" +
+                df["MM_min"].astype(str).str.zfill(2)
+            )
 
-                for _, r in df.iterrows():
-                    room_data[r["ROOM"]][r["dt"].to_pydatetime()] = float(r["PERCENTS"])
+            # Фильтруем по времени и по комнатам (если нужно)
+            df = df[(df["dt"] >= start_dt) & (df["dt"] <= end_dt)]
+            if room_filter:
+                df = df[df["ROOM"].astype(str).isin(room_filter)]
 
-            except Exception as e:
-                logging.error(e)
+            if not df.empty:
+                frames.append(df)
+
+        except Exception as exc:
+            logging.error(f"Ошибка чтения {csv_path}: {exc}")
 
         hour += timedelta(hours=1)
 
-    # Формируем response согласно схеме ApiResponse
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def _build_room_datasets(
+        df: pd.DataFrame,
+        timeline: pd.DatetimeIndex,
+        rooms: List[str],
+) -> List[Dataset]:
+    """Строит датасеты для отдельных комнат (режим total и обычный запрос)."""
     datasets: List[Dataset] = []
 
-    for room in sorted(selected_rooms):
-        hash_val = int(hashlib.sha256(str(room).encode()).hexdigest(), 16)
-        color = colors[hash_val % len(colors)]
+    for room in sorted(rooms):
+        room_df = df[df["ROOM"].astype(str) == str(room)]
+        # Словарь datetime → процент потерь
+        percent_by_time: Dict[datetime, float] = {
+            row.dt: float(row.PERCENTS)
+            for row in room_df.itertuples(index=False)
+        }
 
-        datapoints_raw: List[dict] = []
-        for t in timeline:
-            dt = t.to_pydatetime()
-            y = room_data[room].get(dt, 0.0)
-            datapoints_raw.append({"x": dt.isoformat(), "y": float(y)})
+        raw_points = [
+            {"x": ts.to_pydatetime().isoformat(), "y": percent_by_time.get(ts.to_pydatetime(), 0.0)}
+            for ts in timeline
+        ]
+        optimized = optimize_stepped_data(raw_points)
 
-        optimized_datapoints = optimize_stepped_data(datapoints_raw)
-        datapoints = [DataPoint(**dp) for dp in optimized_datapoints]
+        color = colors[hash(room) % len(colors)]
+        datasets.append(Dataset(
+            label=str(room),
+            data=[DataPoint(**p) for p in optimized],
+            borderColor=color,
+            backgroundColor=color + "50",
+            fill=True,
+        ))
 
-        datasets.append(
-            Dataset(
-                label=str(room),
-                data=datapoints,
-                borderColor=color,
-                backgroundColor=color + "50",
-                fill=True
-            )
-        )
+    return datasets
 
-    return ApiResponse(datasets=datasets)
+
+def _build_summary_dataset(
+        df: pd.DataFrame,
+        timeline: pd.DatetimeIndex,
+) -> Dataset:
+    """
+    Строит один датасет — суммарный процент потерь по всем комнатам.
+    Формула: sum(LOSSES) / sum(PACKETS) * 100
+    """
+    # Группируем по минуте
+    grouped = (
+        df.groupby("dt")
+        .agg(total_packets=("PACKETS", "sum"), total_losses=("LOSSES", "sum"))
+        .reindex(timeline.to_pydatetime(), fill_value=0)
+    )
+
+    raw_points = []
+    for ts in timeline:
+        packets = int(grouped.loc[ts.to_pydatetime(), "total_packets"])
+        losses = int(grouped.loc[ts.to_pydatetime(), "total_losses"])
+        percent = round(losses / packets * 100, 3) if packets > 0 else 0.0
+        raw_points.append({"x": ts.to_pydatetime().isoformat(), "y": percent})
+
+    optimized = optimize_stepped_data(raw_points)
+
+    return Dataset(
+        label="Summary (all rooms)",
+        data=[DataPoint(**p) for p in optimized],
+        borderColor="#ff6b6b",
+        backgroundColor="#ff6b6b50",
+        fill=True,
+    )
