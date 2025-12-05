@@ -74,11 +74,23 @@ async def get_all_rooms() -> list[str]:
     if _rooms_cache is None or (now - _cache_time).seconds > 30:
         rooms = set()
         for p in HOURS_DIR.glob("losses_*.csv"):
+            if not p.is_file():
+                continue
             try:
-                df = pd.read_csv(p, delimiter=";", usecols=["ROOM"])
-                rooms.update(df["ROOM"].astype(str).dropna().unique())
+                # Читаем ВСЕ колонки, но только нужные строки
+                # header=0 — предполагаем, что заголовок есть
+                df = pd.read_csv(p, delimiter=";", header=0, usecols=lambda x: x in {"ROOM"}, dtype=str)
+                if "ROOM" in df.columns:
+                    rooms.update(df["ROOM"].dropna().astype(str).str.strip().unique())
             except Exception as e:
-                logging.error(e)
+                # Если usecols не сработал — попробуем без него
+                try:
+                    df = pd.read_csv(p, delimiter=";", header=0, nrows=1000, dtype=str)
+                    # Попробуем найти колонку ROOM по позиции (6-я колонка)
+                    if df.shape[1] >= 6:
+                        rooms.update(df.iloc[:, 5].dropna().astype(str).str.strip().unique())
+                except Exception as e2:
+                    logging.error(f"Не удалось прочитать комнаты из {p}: {e2}")
                 continue
         _rooms_cache = sorted(rooms)
         _cache_time = now
