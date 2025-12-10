@@ -215,7 +215,7 @@ class ApiFilters(BaseModel):
         json_schema_extra={"example": "101,102"}
     )
     excluded_rooms: Optional[str] = Field(
-        "ULK905v4,
+        "ULK905v4",
         # None,
         description="Список исключенных комнат через запятую. "
                     "Эти комнаты не будут обрабатываться при режимах 'total' и 'summary'.",
