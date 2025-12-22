@@ -21,18 +21,20 @@ HOURS_DIR = Path("data/losses/hours")
 _rooms_cache = None
 _cache_time: datetime | None = None
 
-# Равномерно распределённых по цветовому кругу с шагом 10° (360° / 36).
+
 colors = [
-    "#e6194b",  # 0°
-    "#f28e2b",  # 36°
-    "#e6c229",  # 72°
-    "#8fd14f",  # 108°
-    "#2ecc71",  # 144°
-    "#20b2aa",  # 180°
-    "#3498db",  # 216°
-    "#5b6ee1",  # 252°
-    "#9b59b6",  # 288°
-    "#e056fd"   # 324°
+    "#ff0000",  # 0°  — красный
+    "#ffff00",  # 60° — жёлтый
+    "#0000ff",  # 180° — синий
+    "#ff8000",  # 30° — оранжевый
+    "#00ff00",  # 90° — зелёный
+    "#ff00ff",  # 150° — фиолетовый
+    "#ff4000",  # 15° — красно-оранжевый
+    "#ffc000",  # 45° — жёлто-оранжевый
+    "#80ff00",  # 75° — жёлто-зелёный
+    "#00ff80",  # 105° — зелёный-бирюзовый
+    "#0080ff",  # 135° — голубой
+    "#8000ff"  # 165° — сине-фиолетовый
 ]
 
 
@@ -297,7 +299,7 @@ async def get_graph_points(query_args: ApiFilters):
 
     # 6. Строим ответ
     if "total" in (rooms_param or "") or selected:
-        datasets = _build_room_datasets(df, timeline, list(room_set or []))
+        datasets = await _build_room_datasets(df, timeline, list(room_set or []))
     else:
         # Запрос без rooms → по умолчанию summary (или можно оставить пустым)
         dataset = _build_summary_dataset(df, timeline)
@@ -384,7 +386,12 @@ def _load_hourly_data_for_period(
     return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
 
-def _build_room_datasets(
+async def _get_room_color(room: str) -> str:
+    rooms = await get_all_rooms()
+    return colors[rooms.index(room)]
+
+
+async def _build_room_datasets(
         df: pd.DataFrame,
         timeline: pd.DatetimeIndex,
         rooms: List[str],
@@ -406,7 +413,7 @@ def _build_room_datasets(
         ]
         optimized = optimize_stepped_data(raw_points)
 
-        color = colors[hash(room) % len(colors)]
+        color = await _get_room_color(room)
         datasets.append(Dataset(
             label=str(room),
             data=[DataPoint(**p) for p in optimized],
