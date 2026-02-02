@@ -100,9 +100,7 @@ async def upload_data(room: str, data: Upload):
     os.makedirs(join.parent, exist_ok=True)
 
     # Асинхронная запись файла
-    async with aiofiles.open(join, 'wb') as f:
-        content = file.read()
-        await f.write(content)
+    await file.save(join)
 
     await append_analytics(room, join)
 
