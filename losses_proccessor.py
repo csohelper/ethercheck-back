@@ -263,6 +263,9 @@ def process_losses_sync(room: str, file: Path) -> None:
     :param file: Path to input JSON file.
     :return: None
     """
+    if not os.path.exists(file) or os.path.getsize(file) == 0:
+        print(f"File {file} is empty or missing")
+        return None
     with file.open("r", encoding="utf-8") as fh:
         data = json.load(fh)
     by_hour = group_data_by_hour(data)
