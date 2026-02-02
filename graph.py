@@ -295,7 +295,7 @@ async def get_graph_points(query_args: ApiFilters):
         return ApiResponse(datasets=[])
 
     # 5. Формируем временную шкалу
-    timeline = pd.date_range(start_dt, end_dt, freq="T")
+    timeline = pd.date_range(start_dt, end_dt, freq="min")
 
     # 6. Строим ответ
     if "total" in (rooms_param or "") or selected:
