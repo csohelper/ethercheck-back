@@ -21,6 +21,7 @@ from graph import graph_bp
 from losses_proccessor import process_losses
 
 app = Quart(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024 * 1024
 QuartSchema(
     app, openapi_path='/api/openapi.json',
     redoc_ui_path='/api/redocs',
